@@ -154,17 +154,6 @@ func (o *TextOutput) Err(msg string) {
 	}
 }
 
-// Write an error message to stderr and quit with exit code 1
-func (o *TextOutput) ErrExit(msg string) {
-	o.Err(msg)
-	os.Exit(1)
-}
-
-// Deprectated
-func (o *TextOutput) IsEnabled() bool {
-	return o.enabled
-}
-
 // Enabled returns true if any output is enabled
 func (o *TextOutput) Enabled() bool {
 	return o.enabled
