@@ -79,6 +79,16 @@ func (o *TextOutput) Printf(format string, args ...interface{}) {
 	}
 }
 
+// Disable text output
+func (o *TextOutput) Disable() {
+	o.enabled = false
+}
+
+// Enable text output
+func (o *TextOutput) Enable() {
+	o.enabled = true
+}
+
 // Err writes an error message in red to stderr if output is enabled
 func (o *TextOutput) Err(msg string) {
 	if o.enabled {
