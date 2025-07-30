@@ -72,7 +72,14 @@ func (o *TextOutput) Print(msg ...interface{}) {
 	}
 }
 
-// Write an error message in red to stderr if output is enabled
+// Printf writes a formatted message to stdout if output is enabled
+func (o *TextOutput) Printf(format string, args ...interface{}) {
+	if o.enabled {
+		fmt.Print(o.Tags(fmt.Sprintf(format, args...)))
+	}
+}
+
+// Err writes an error message in red to stderr if output is enabled
 func (o *TextOutput) Err(msg string) {
 	if o.enabled {
 		if o.color {
