@@ -23,7 +23,7 @@ type TextOutput struct {
 	enabled       bool
 }
 
-// Respect the NO_COLOR environment variable
+// EnvNoColor respects the NO_COLOR environment variable
 var EnvNoColor = env.Bool("NO_COLOR")
 
 // NewTextOutput can initialize a new TextOutput struct,
@@ -58,14 +58,14 @@ func (o *TextOutput) OutputTags(colors ...string) {
 	}
 }
 
-// Write a message to stdout if output is enabled
+// Println writes a message to stdout if output is enabled
 func (o *TextOutput) Println(msg ...interface{}) {
 	if o.enabled {
 		fmt.Println(o.InterfaceTags(msg...))
 	}
 }
 
-// Write a message to stdout if output is enabled
+// Print writes a message to stdout if output is enabled
 func (o *TextOutput) Print(msg ...interface{}) {
 	if o.enabled {
 		fmt.Print(o.InterfaceTags(msg...))
@@ -90,7 +90,7 @@ func (o *TextOutput) Err(msg string) {
 	}
 }
 
-// Write an error message to stderr and quit with exit code 1
+// ErrExit writes an error message to stderr and quit with exit code 1
 func (o *TextOutput) ErrExit(msg string) {
 	o.Err(msg)
 	os.Exit(1)
