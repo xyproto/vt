@@ -1,23 +1,29 @@
 package vt
 
 import (
-	"os"
+	"syscall"
+	"unsafe"
 
-	"golang.org/x/term"
 	"github.com/xyproto/env/v2"
 )
 
-// MustTermSize returns the terminal size using golang.org/x/term for cross-platform compatibility
+type winsize struct {
+	Row    uint16
+	Col    uint16
+	Xpixel uint16
+	Ypixel uint16
+}
+
+// Convenience function
 func MustTermSize() (uint, uint) {
-	fd := int(os.Stdout.Fd())
-	if term.IsTerminal(fd) {
-		width, height, err := term.GetSize(fd)
-		if err == nil {
-			return uint(width), uint(height)
-		}
+	ws := &winsize{}
+	// Thanks https://stackoverflow.com/a/16576712/131264
+	if retCode, _, _ := syscall.Syscall(syscall.SYS_IOCTL,
+		uintptr(syscall.Stdin),
+		uintptr(syscall.TIOCGWINSZ),
+		uintptr(unsafe.Pointer(ws))); int(retCode) != -1 {
+		return uint(ws.Col), uint(ws.Row)
 	}
-	
-	// Fallback to environment variables
 	var w uint = 79
 	if cols := env.Int("COLS", 0); cols > 0 {
 		w = uint(cols)
