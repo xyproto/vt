@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/xyproto/env/v2"
 )
 
 const (
@@ -257,6 +259,10 @@ func Init() {
 func Close() {
 	SetLineWrap(true)
 	ShowCursor(true)
+	DisableBracketedPaste()
+	DisableFocusReporting()
+	DisableMouseReporting()
+	DisableAlternateBuffer()
 	Home()
 }
 
@@ -280,45 +286,279 @@ func ShowCursor(enable bool) {
 	}
 }
 
-// GetBackgroundColor prints a code to the terminal emulator,
-// reads the results and tries to interpret it as the RGB background color.
-// Returns three float64 values, and possibly an error value.
+// EnableBracketedPaste enables bracketed paste mode
+func EnableBracketedPaste() {
+	fmt.Print("\033[?2004h")
+}
+
+// DisableBracketedPaste disables bracketed paste mode
+func DisableBracketedPaste() {
+	fmt.Print("\033[?2004l")
+}
+
+// IsPasteStart checks if key code indicates paste start
+func IsPasteStart(keyCode int) bool {
+	return keyCode == PasteStart
+}
+
+// IsPasteEnd checks if key code indicates paste end
+func IsPasteEnd(keyCode int) bool {
+	return keyCode == PasteEnd
+}
+
+// IsShiftInsert checks if key code is Shift+Insert
+func IsShiftInsert(keyCode int) bool {
+	return keyCode == ShiftInsert
+}
+
+// EnableFocusReporting enables focus reporting
+func EnableFocusReporting() {
+	fmt.Print("\033[?1004h")
+}
+
+// DisableFocusReporting disables focus reporting
+func DisableFocusReporting() {
+	fmt.Print("\033[?1004l")
+}
+
+// EnableAlternateBuffer switches to alternate screen buffer
+func EnableAlternateBuffer() {
+	fmt.Print("\033[?1049h")
+}
+
+// DisableAlternateBuffer switches back to main screen buffer
+func DisableAlternateBuffer() {
+	fmt.Print("\033[?1049l")
+}
+
+// EnableMouseReporting enables mouse reporting
+func EnableMouseReporting() {
+	if isInsideTmux() {
+		// In tmux, enable mouse support through tmux
+		TmuxPassthrough("\033[?1000h") // Basic mouse reporting
+		TmuxPassthrough("\033[?1002h") // Button event mouse reporting
+		TmuxPassthrough("\033[?1015h") // Extended mouse reporting
+		TmuxPassthrough("\033[?1006h") // SGR mouse reporting
+	} else {
+		fmt.Print("\033[?1000h") // Basic mouse reporting
+		fmt.Print("\033[?1002h") // Button event mouse reporting
+		fmt.Print("\033[?1015h") // Extended mouse reporting
+		fmt.Print("\033[?1006h") // SGR mouse reporting
+	}
+}
+
+// DisableMouseReporting disables mouse reporting
+func DisableMouseReporting() {
+	if isInsideTmux() {
+		TmuxPassthrough("\033[?1006l")
+		TmuxPassthrough("\033[?1015l")
+		TmuxPassthrough("\033[?1002l")
+		TmuxPassthrough("\033[?1000l")
+	} else {
+		fmt.Print("\033[?1006l")
+		fmt.Print("\033[?1015l")
+		fmt.Print("\033[?1002l")
+		fmt.Print("\033[?1000l")
+	}
+}
+
+// SetTitle sets the terminal window title
+func SetTitle(title string) {
+	if isInsideTmux() {
+		// Use tmux passthrough sequence
+		fmt.Printf("\033Ptmux;\033\033]0;%s\a\033\\", title)
+	} else {
+		fmt.Printf("\033]0;%s\a", title)
+	}
+}
+
+// isInsideTmux checks if running inside tmux
+func isInsideTmux() bool {
+	return env.Str("TMUX") != ""
+}
+
+// TmuxPassthrough wraps an escape sequence for tmux passthrough
+func TmuxPassthrough(sequence string) {
+	if isInsideTmux() {
+		fmt.Printf("\033Ptmux;\033%s\033\\", sequence)
+	} else {
+		fmt.Print(sequence)
+	}
+}
+
+// GetBackgroundColor queries the terminal for its RGB background color.
+// Returns three float64 values (0-1 range) and possibly an error.
 func GetBackgroundColor(tty *TTY) (float64, float64, float64, error) {
-	// First try the escape code used by ie. alacritty
-	if err := tty.WriteString("\033]11;?\a"); err != nil {
-		return 0, 0, 0, err
+	// Check if background queries are supported
+	if !isBackgroundQuerySupported() {
+		r, g, b := getDefaultBackgroundColor()
+		return r, g, b, nil
 	}
-	result, err := tty.ReadString()
-	if err != nil {
-		return 0, 0, 0, err
+
+	// Try multiple query methods
+	methods := []func(*TTY) (string, error){
+		queryBackgroundOSC11,
+		queryBackgroundOSC10_11,
+		queryBackgroundXterm,
 	}
-	if !strings.Contains(result, "rgb:") {
-		// Then try the escape code used by ie. gnome-terminal
-		if err := tty.WriteString("\033]10;?\a\033]11;?\a"); err != nil {
-			return 0, 0, 0, err
-		}
-		result, err = tty.ReadString()
-		if err != nil {
-			return 0, 0, 0, err
-		}
-	}
-	if pos := strings.Index(result, "rgb:"); pos != -1 {
-		rgb := result[pos+4:]
-		if strings.Count(rgb, "/") == 2 {
-			parts := strings.SplitN(rgb, "/", 3)
-			if len(parts) == 3 {
-				r := new(big.Int)
-				r.SetString(parts[0], 16)
-				g := new(big.Int)
-				g.SetString(parts[1], 16)
-				b := new(big.Int)
-				b.SetString(parts[2], 16)
-				return float64(r.Int64() / 65535.0), float64(g.Int64() / 65535.0), float64(b.Int64() / 65535.0), nil
+
+	for _, method := range methods {
+		result, err := method(tty)
+		if err == nil && result != "" {
+			if r, g, b, ok := parseBackgroundResponse(result); ok {
+				return r, g, b, nil
 			}
 		}
 	}
 
-	return 0, 0, 0, fmt.Errorf("could not read rgb value from terminal emulator, got: %q", result)
+	// Fallback to defaults if all methods fail
+	r, g, b := getDefaultBackgroundColor()
+	return r, g, b, fmt.Errorf("could not read background color from terminal, using defaults")
+}
+
+// isBackgroundQuerySupported checks if background queries are supported
+func isBackgroundQuerySupported() bool {
+	termType := env.Str("TERM")
+
+	// tmux often filters OSC sequences
+	if env.Str("TMUX") != "" {
+		return false
+	}
+
+	// Some terminals don't support background queries
+	unsupportedTerms := []string{"dumb", "screen", "linux"}
+	for _, unsupported := range unsupportedTerms {
+		if strings.Contains(termType, unsupported) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// queryBackgroundOSC11 tries the OSC 11 sequence
+func queryBackgroundOSC11(tty *TTY) (string, error) {
+	if err := tty.WriteString("\033]11;?\a"); err != nil {
+		return "", err
+	}
+	return tty.ReadString()
+}
+
+// queryBackgroundOSC10_11 tries OSC 10/11 sequence
+func queryBackgroundOSC10_11(tty *TTY) (string, error) {
+	if err := tty.WriteString("\033]10;?\a\033]11;?\a"); err != nil {
+		return "", err
+	}
+	return tty.ReadString()
+}
+
+// queryBackgroundXterm tries xterm-style background query
+func queryBackgroundXterm(tty *TTY) (string, error) {
+	if err := tty.WriteString("\033]11;?\033\\"); err != nil {
+		return "", err
+	}
+	return tty.ReadString()
+}
+
+// parseBackgroundResponse parses various RGB response formats
+func parseBackgroundResponse(result string) (float64, float64, float64, bool) {
+	// Standard rgb: format
+	if pos := strings.Index(result, "rgb:"); pos != -1 {
+		rgb := result[pos+4:]
+		if r, g, b, ok := parseRGBComponents(rgb); ok {
+			return r, g, b, true
+		}
+	}
+
+	// Alternative formats used by some terminals
+	if pos := strings.Index(result, "#"); pos != -1 {
+		hex := result[pos+1:]
+		if r, g, b, ok := parseHexColor(hex); ok {
+			return r, g, b, true
+		}
+	}
+
+	// tmux may wrap the response differently
+	if isInsideTmux() && strings.Contains(result, "tmux") {
+		// Parse tmux-wrapped response
+		if start := strings.Index(result, "\033]"); start != -1 {
+			return parseBackgroundResponse(result[start:])
+		}
+	}
+
+	return 0, 0, 0, false
+}
+
+// parseRGBComponents parses RGB components in format "RRRR/GGGG/BBBB"
+func parseRGBComponents(rgb string) (float64, float64, float64, bool) {
+	if strings.Count(rgb, "/") == 2 {
+		parts := strings.SplitN(rgb, "/", 3)
+		if len(parts) == 3 {
+			r := new(big.Int)
+			g := new(big.Int)
+			b := new(big.Int)
+
+			if _, ok := r.SetString(parts[0], 16); !ok {
+				return 0, 0, 0, false
+			}
+			if _, ok := g.SetString(parts[1], 16); !ok {
+				return 0, 0, 0, false
+			}
+			if _, ok := b.SetString(parts[2], 16); !ok {
+				return 0, 0, 0, false
+			}
+
+			// Normalize to 0-1 range
+			divisor := int64(65535) // Default for 4-digit hex
+			if len(parts[0]) <= 2 {
+				divisor = 255
+			}
+
+			return float64(r.Int64()) / float64(divisor),
+				float64(g.Int64()) / float64(divisor),
+				float64(b.Int64()) / float64(divisor), true
+		}
+	}
+	return 0, 0, 0, false
+}
+
+// parseHexColor parses hex color format "#RRGGBB" or "#RGB"
+func parseHexColor(hex string) (float64, float64, float64, bool) {
+	if len(hex) == 6 {
+		// Format: RRGGBB
+		r := new(big.Int)
+		g := new(big.Int)
+		b := new(big.Int)
+
+		if _, ok := r.SetString(hex[0:2], 16); !ok {
+			return 0, 0, 0, false
+		}
+		if _, ok := g.SetString(hex[2:4], 16); !ok {
+			return 0, 0, 0, false
+		}
+		if _, ok := b.SetString(hex[4:6], 16); !ok {
+			return 0, 0, 0, false
+		}
+
+		return float64(r.Int64()) / 255.0,
+			float64(g.Int64()) / 255.0,
+			float64(b.Int64()) / 255.0, true
+	}
+	return 0, 0, 0, false
+}
+
+// getDefaultBackgroundColor returns default background colors
+func getDefaultBackgroundColor() (float64, float64, float64) {
+	// Detect dark or light terminal
+	termType := env.Str("TERM")
+	colorTerm := env.Str("COLORTERM")
+
+	// Default to dark background
+	if strings.Contains(termType, "light") || strings.Contains(colorTerm, "light") {
+		return 0.95, 0.95, 0.95 // Light background
+	}
+
+	return 0.05, 0.05, 0.05 // Dark background
 }
 
 func (ac AttributeColor) Head() uint32 {

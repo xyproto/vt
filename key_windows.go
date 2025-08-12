@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
 	"unsafe"
 
+	"github.com/xyproto/env/v2"
 	"golang.org/x/term"
 )
 
@@ -26,9 +28,18 @@ var (
 const (
 	STD_INPUT_HANDLE                   = ^uintptr(10) // -11
 	STD_OUTPUT_HANDLE                  = ^uintptr(11) // -12
+	STD_ERROR_HANDLE                   = ^uintptr(12) // -13
 	ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
 	ENABLE_VIRTUAL_TERMINAL_INPUT      = 0x0200
 	DISABLE_NEWLINE_AUTO_RETURN        = 0x0008
+	ENABLE_PROCESSED_INPUT             = 0x0001
+	ENABLE_LINE_INPUT                  = 0x0002
+	ENABLE_ECHO_INPUT                  = 0x0004
+	ENABLE_WINDOW_INPUT                = 0x0008
+	ENABLE_MOUSE_INPUT                 = 0x0010
+	ENABLE_INSERT_MODE                 = 0x0020
+	ENABLE_QUICK_EDIT_MODE             = 0x0040
+	ENABLE_EXTENDED_FLAGS              = 0x0080
 )
 
 var (
@@ -42,22 +53,80 @@ var keyCodeLookup = map[[3]byte]int{
 	{27, 91, 66}:  255, // Down Arrow
 	{27, 91, 67}:  254, // Right Arrow
 	{27, 91, 68}:  252, // Left Arrow
-	{27, 91, 'H'}: 1,   // Home (Ctrl-A)
-	{27, 91, 'F'}: 5,   // End (Ctrl-E)
+	{27, 91, 'H'}: 1,   // Home
+	{27, 91, 'F'}: 5,   // End
 }
 
-// Key codes for 4-byte sequences (Page Up, Page Down, Home, End)
+// Key codes for 4-byte sequences (Page Up, Page Down, Home, End, Insert, Delete)
 var pageNavLookup = map[[4]byte]int{
-	{27, 91, 49, 126}: 1,   // Home (ESC [1~)
-	{27, 91, 52, 126}: 5,   // End (ESC [4~)
-	{27, 91, 53, 126}: 251, // Page Up (custom code)
-	{27, 91, 54, 126}: 250, // Page Down (custom code)
+	{27, 91, 49, 126}: 1,   // Home
+	{27, 91, 50, 126}: 259, // Insert
+	{27, 91, 51, 126}: 127, // Delete
+	{27, 91, 52, 126}: 5,   // End
+	{27, 91, 53, 126}: 251, // Page Up
+	{27, 91, 54, 126}: 250, // Page Down
 }
 
-// Key codes for 6-byte sequences (Ctrl-Insert)
-var ctrlInsertLookup = map[[6]byte]int{
-	{27, 91, 50, 59, 53, 126}: 258, // Ctrl-Insert (ESC [2;5~)
+// Function key codes (5-byte sequences)
+var functionKeyLookup = map[[5]byte]int{
+	{27, 91, 49, 49, 126}: 260, // F1
+	{27, 91, 49, 50, 126}: 261, // F2
+	{27, 91, 49, 51, 126}: 262, // F3
+	{27, 91, 49, 52, 126}: 263, // F4
+	{27, 91, 49, 53, 126}: 264, // F5
+	{27, 91, 49, 55, 126}: 265, // F6
+	{27, 91, 49, 56, 126}: 266, // F7
+	{27, 91, 49, 57, 126}: 267, // F8
+	{27, 91, 50, 48, 126}: 268, // F9
+	{27, 91, 50, 49, 126}: 269, // F10
+	{27, 91, 50, 51, 126}: 270, // F11
+	{27, 91, 50, 52, 126}: 271, // F12
 }
+
+// Key codes for 6-byte sequences (Ctrl combinations)
+var ctrlInsertLookup = map[[6]byte]int{
+	{27, 91, 50, 59, 53, 126}: 258, // Ctrl-Insert
+}
+
+// Ctrl key combinations
+var ctrlKeyLookup = map[[6]byte]int{
+	{27, 91, 49, 59, 53, 65}: 280, // Ctrl-Up
+	{27, 91, 49, 59, 53, 66}: 281, // Ctrl-Down
+	{27, 91, 49, 59, 53, 67}: 282, // Ctrl-Right
+	{27, 91, 49, 59, 53, 68}: 283, // Ctrl-Left
+	{27, 91, 49, 59, 53, 72}: 284, // Ctrl-Home
+	{27, 91, 49, 59, 53, 70}: 285, // Ctrl-End
+}
+
+// Alt key combinations
+var altKeyLookup = map[[6]byte]int{
+	{27, 91, 49, 59, 51, 65}: 290, // Alt-Up
+	{27, 91, 49, 59, 51, 66}: 291, // Alt-Down
+	{27, 91, 49, 59, 51, 67}: 292, // Alt-Right
+	{27, 91, 49, 59, 51, 68}: 293, // Alt-Left
+}
+
+// Shift key combinations
+var shiftKeyLookup = map[[6]byte]int{
+	{27, 91, 49, 59, 50, 65}:  300, // Shift-Up
+	{27, 91, 49, 59, 50, 66}:  301, // Shift-Down
+	{27, 91, 49, 59, 50, 67}:  302, // Shift-Right
+	{27, 91, 49, 59, 50, 68}:  303, // Shift-Left
+	{27, 91, 50, 59, 50, 126}: 304, // Shift-Insert
+}
+
+// Bracketed paste mode sequences
+var pasteModeLookup = map[[6]byte]int{
+	{27, 91, 50, 48, 48, 126}: 400, // Paste start
+	{27, 91, 50, 48, 49, 126}: 401, // Paste end
+}
+
+// Paste operation constants
+const (
+	PasteStart  = 400
+	PasteEnd    = 401
+	ShiftInsert = 304
+)
 
 // String representations for 3-byte sequences
 var keyStringLookup = map[[3]byte]string{
@@ -72,14 +141,65 @@ var keyStringLookup = map[[3]byte]string{
 // String representations for 4-byte sequences
 var pageStringLookup = map[[4]byte]string{
 	{27, 91, 49, 126}: "⇱", // Home
+	{27, 91, 50, 126}: "⎀", // Insert
+	{27, 91, 51, 126}: "⌦", // Delete
 	{27, 91, 52, 126}: "⇲", // End
 	{27, 91, 53, 126}: "⇞", // Page Up
 	{27, 91, 54, 126}: "⇟", // Page Down
 }
 
-// String representations for 6-byte sequences (Ctrl-Insert)
+// String representations for 5-byte sequences (function keys)
+var functionStringLookup = map[[5]byte]string{
+	{27, 91, 49, 49, 126}: "F1",  // F1
+	{27, 91, 49, 50, 126}: "F2",  // F2
+	{27, 91, 49, 51, 126}: "F3",  // F3
+	{27, 91, 49, 52, 126}: "F4",  // F4
+	{27, 91, 49, 53, 126}: "F5",  // F5
+	{27, 91, 49, 55, 126}: "F6",  // F6
+	{27, 91, 49, 56, 126}: "F7",  // F7
+	{27, 91, 49, 57, 126}: "F8",  // F8
+	{27, 91, 50, 48, 126}: "F9",  // F9
+	{27, 91, 50, 49, 126}: "F10", // F10
+	{27, 91, 50, 51, 126}: "F11", // F11
+	{27, 91, 50, 52, 126}: "F12", // F12
+}
+
+// String representations for Ctrl-Insert
 var ctrlInsertStringLookup = map[[6]byte]string{
-	{27, 91, 50, 59, 53, 126}: "⎘", // Ctrl-Insert (Copy)
+	{27, 91, 50, 59, 53, 126}: "⎘", // Ctrl-Insert
+}
+
+// String representations for Ctrl key combinations
+var ctrlKeyStringLookup = map[[6]byte]string{
+	{27, 91, 49, 59, 53, 65}: "C-↑", // Ctrl-Up
+	{27, 91, 49, 59, 53, 66}: "C-↓", // Ctrl-Down
+	{27, 91, 49, 59, 53, 67}: "C-→", // Ctrl-Right
+	{27, 91, 49, 59, 53, 68}: "C-←", // Ctrl-Left
+	{27, 91, 49, 59, 53, 72}: "C-⇱", // Ctrl-Home
+	{27, 91, 49, 59, 53, 70}: "C-⇲", // Ctrl-End
+}
+
+// String representations for Alt key combinations
+var altKeyStringLookup = map[[6]byte]string{
+	{27, 91, 49, 59, 51, 65}: "M-↑", // Alt-Up
+	{27, 91, 49, 59, 51, 66}: "M-↓", // Alt-Down
+	{27, 91, 49, 59, 51, 67}: "M-→", // Alt-Right
+	{27, 91, 49, 59, 51, 68}: "M-←", // Alt-Left
+}
+
+// String representations for Shift key combinations
+var shiftKeyStringLookup = map[[6]byte]string{
+	{27, 91, 49, 59, 50, 65}:  "S-↑", // Shift-Up
+	{27, 91, 49, 59, 50, 66}:  "S-↓", // Shift-Down
+	{27, 91, 49, 59, 50, 67}:  "S-→", // Shift-Right
+	{27, 91, 49, 59, 50, 68}:  "S-←", // Shift-Left
+	{27, 91, 50, 59, 50, 126}: "S-⎀", // Shift-Insert
+}
+
+// String representations for paste mode
+var pasteModeStringLookup = map[[6]byte]string{
+	{27, 91, 50, 48, 48, 126}: "[PASTE_START]", // Paste start
+	{27, 91, 50, 48, 49, 126}: "[PASTE_END]",   // Paste end
 }
 
 type TTY struct {
@@ -88,9 +208,39 @@ type TTY struct {
 	timeout            time.Duration
 	originalInputMode  uint32
 	originalOutputMode uint32
+	info               *WindowsTerminalInfo
 }
 
-// enableVTMode enables VT100/ANSI escape sequence processing on Windows
+// WindowsTerminalInfo holds Windows-specific terminal information
+type WindowsTerminalInfo struct {
+	IsWindowsTerminal bool
+	IsConHost         bool
+	SupportsVT        bool
+	Version           string
+	BuildNumber       int
+}
+
+// detectWindowsTerminal detects Windows Terminal
+func detectWindowsTerminal() *WindowsTerminalInfo {
+	info := &WindowsTerminalInfo{}
+
+	// Check for Windows Terminal
+	wtSession := env.Str("WT_SESSION")
+	wtProfile := env.Str("WT_PROFILE_ID")
+	info.IsWindowsTerminal = wtSession != "" || wtProfile != ""
+
+	// Check for ConHost
+	info.IsConHost = !info.IsWindowsTerminal
+
+	// Get terminal version
+	if termProgram := env.Str("TERM_PROGRAM"); termProgram != "" {
+		info.Version = termProgram
+	}
+
+	return info
+}
+
+// enableVTMode enables VT100/ANSI processing
 func enableVTMode() error {
 	// Enable VT processing for stdout
 	stdout, _, _ := procGetStdHandle.Call(STD_OUTPUT_HANDLE)
@@ -131,17 +281,48 @@ func enableVTMode() error {
 	return nil
 }
 
-// NewTTY opens stdin/stdout for terminal input/output on Windows
+// isVTSupported checks if VT processing is supported
+func isVTSupported() bool {
+	// Windows 10 TH2 and later support VT processing
+	// Test VT mode enablement
+	stdout, _, _ := procGetStdHandle.Call(STD_OUTPUT_HANDLE)
+	if stdout == 0 {
+		return false
+	}
+
+	var outputMode uint32
+	ret, _, _ := procGetConsoleMode.Call(stdout, uintptr(unsafe.Pointer(&outputMode)))
+	if ret == 0 {
+		return false
+	}
+
+	// Test VT processing flag
+	testMode := outputMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+	ret, _, _ = procSetConsoleMode.Call(stdout, uintptr(testMode))
+	if ret == 0 {
+		return false
+	}
+
+	// Restore original mode
+	procSetConsoleMode.Call(stdout, uintptr(outputMode))
+	return true
+}
+
+// NewTTY opens terminal for input/output on Windows
 func NewTTY() (*TTY, error) {
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
 		return nil, errors.New("not a terminal")
 	}
 
+	// Detect terminal type
+	info := detectWindowsTerminal()
+	info.SupportsVT = isVTSupported()
+
 	// Enable VT100/ANSI mode for Windows Console
 	err := enableVTMode()
-	if err != nil {
-		// Don't fail if VT mode can't be enabled, just warn
+	if err != nil && info.SupportsVT {
+		// Warn if VT should be supported but failed
 		fmt.Fprintf(os.Stderr, "Warning: Could not enable VT100 mode: %v\n", err)
 	}
 
@@ -154,6 +335,7 @@ func NewTTY() (*TTY, error) {
 		fd:            fd,
 		originalState: originalState,
 		timeout:       defaultTimeout,
+		info:          info,
 	}, nil
 }
 
@@ -169,7 +351,22 @@ func (tty *TTY) Close() {
 	}
 }
 
-// asciiAndKeyCode processes input into an ASCII code or key code, handling multi-byte sequences like Ctrl-Insert
+// normalizeKeyCode handles Windows key differences
+func normalizeKeyCode(ascii, keyCode int, info *WindowsTerminalInfo) (int, int) {
+	if info.IsConHost {
+		// Traditional console normalization
+		switch ascii {
+		case 13: // CR
+			return 10, 0 // Normalize to LF
+		case 127: // DEL
+			return 8, 0 // Normalize to Backspace
+		}
+	}
+
+	return ascii, keyCode
+}
+
+// asciiAndKeyCode processes input into ASCII or key codes, handling multi-byte sequences
 func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 	bytes := make([]byte, 6) // Use 6 bytes to cover longer sequences like Ctrl-Insert
 	var numRead int
@@ -218,8 +415,36 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 			keyCode = code
 			return
 		}
+	case numRead == 5:
+		// Handle function keys (F1-F12)
+		seq := [5]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]}
+		if code, found := functionKeyLookup[seq]; found {
+			keyCode = code
+			return
+		}
 	case numRead == 6:
 		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
+		// Check Ctrl combinations
+		if code, found := ctrlKeyLookup[seq]; found {
+			keyCode = code
+			return
+		}
+		// Check Alt combinations
+		if code, found := altKeyLookup[seq]; found {
+			keyCode = code
+			return
+		}
+		// Check Shift combinations
+		if code, found := shiftKeyLookup[seq]; found {
+			keyCode = code
+			return
+		}
+		// Check bracketed paste mode
+		if code, found := pasteModeLookup[seq]; found {
+			keyCode = code
+			return
+		}
+		// Check Ctrl-Insert
 		if code, found := ctrlInsertLookup[seq]; found {
 			keyCode = code
 			return
@@ -241,6 +466,10 @@ func (tty *TTY) Key() int {
 	if err != nil {
 		return 0
 	}
+
+	// Normalize for Windows compatibility
+	ascii, keyCode = normalizeKeyCode(ascii, keyCode, tty.info)
+
 	var key int
 	if keyCode != 0 {
 		key = keyCode
@@ -299,8 +528,27 @@ func (tty *TTY) String() string {
 			return str
 		}
 		return string(bytes[:numRead])
+	case numRead == 5:
+		// Handle function keys
+		seq := [5]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]}
+		if str, found := functionStringLookup[seq]; found {
+			return str
+		}
+		return string(bytes[:numRead])
 	case numRead == 6:
 		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
+		if str, found := ctrlKeyStringLookup[seq]; found {
+			return str
+		}
+		if str, found := altKeyStringLookup[seq]; found {
+			return str
+		}
+		if str, found := shiftKeyStringLookup[seq]; found {
+			return str
+		}
+		if str, found := pasteModeStringLookup[seq]; found {
+			return str
+		}
 		if str, found := ctrlInsertStringLookup[seq]; found {
 			return str
 		}
@@ -359,8 +607,28 @@ func (tty *TTY) Rune() rune {
 		}
 		r, _ := utf8.DecodeRune(bytes[:numRead])
 		return r
+	case numRead == 5:
+		// Handle function keys
+		seq := [5]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]}
+		if str, found := functionStringLookup[seq]; found {
+			return []rune(str)[0]
+		}
+		r, _ := utf8.DecodeRune(bytes[:numRead])
+		return r
 	case numRead == 6:
 		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
+		if str, found := ctrlKeyStringLookup[seq]; found {
+			return []rune(str)[0]
+		}
+		if str, found := altKeyStringLookup[seq]; found {
+			return []rune(str)[0]
+		}
+		if str, found := shiftKeyStringLookup[seq]; found {
+			return []rune(str)[0]
+		}
+		if str, found := pasteModeStringLookup[seq]; found {
+			return []rune(str)[0]
+		}
 		if str, found := ctrlInsertStringLookup[seq]; found {
 			return []rune(str)[0]
 		}
@@ -403,8 +671,14 @@ func (tty *TTY) WriteString(s string) error {
 
 // ReadString reads a string from the TTY with timeout
 func (tty *TTY) ReadString() (string, error) {
-	// Set up a timeout channel
-	timeout := time.After(100 * time.Millisecond) // Short timeout for terminal responses
+	// Adjust timeout for terminal type
+	timeoutDuration := 100 * time.Millisecond
+	if tty.info.IsWindowsTerminal {
+		// Windows Terminal is faster
+		timeoutDuration = 50 * time.Millisecond
+	}
+
+	timeout := time.After(timeoutDuration)
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 
@@ -427,20 +701,25 @@ func (tty *TTY) ReadString() (string, error) {
 				return
 			}
 			if n > 0 {
-				// For terminal responses, look for bell character (0x07) which terminates OSC sequences
+				// Look for bell character terminating OSC sequences
 				if buffer[0] == 0x07 || buffer[0] == '\a' {
 					resultChan <- string(result)
 					return
 				}
-				// Also break on ESC sequence end for some terminals
+				// Break on ESC sequence end
 				if len(result) > 0 && buffer[0] == '\\' && result[len(result)-1] == 0x1b {
+					resultChan <- string(result)
+					return
+				}
+				// ST (String Terminator) for OSC
+				if len(result) > 0 && buffer[0] == 0x9c {
 					resultChan <- string(result)
 					return
 				}
 				result = append(result, buffer[0])
 
-				// Prevent infinite reading - limit response size
-				if len(result) > 512 {
+				// Limit response size
+				if len(result) > 1024 {
 					resultChan <- string(result)
 					return
 				}
@@ -454,7 +733,7 @@ func (tty *TTY) ReadString() (string, error) {
 	case err := <-errorChan:
 		return "", err
 	case <-timeout:
-		// Timeout - return empty string (no error, just no response from terminal)
+		// Timeout - no response from terminal
 		return "", nil
 	}
 }
@@ -497,6 +776,59 @@ func (tty *TTY) KeyCode() int {
 		return 0
 	}
 	return keyCode
+}
+
+// ReadPasteData reads pasted text between bracketed paste markers
+func (tty *TTY) ReadPasteData() (string, error) {
+	var result strings.Builder
+	inPaste := false
+
+	for {
+		key := tty.Key()
+		if key == 0 {
+			continue
+		}
+
+		if IsPasteStart(key) {
+			inPaste = true
+			continue
+		}
+
+		if IsPasteEnd(key) {
+			break
+		}
+
+		if inPaste {
+			// Read character for paste data
+			if key < 128 && key >= 32 { // Printable ASCII
+				result.WriteByte(byte(key))
+			} else if key == 10 || key == 13 { // Newlines
+				result.WriteByte('\n')
+			}
+		}
+	}
+
+	return result.String(), nil
+}
+
+// IsPasteStart checks if key code indicates paste start
+func IsPasteStart(keyCode int) bool {
+	return keyCode == PasteStart
+}
+
+// IsPasteEnd checks if key code indicates paste end
+func IsPasteEnd(keyCode int) bool {
+	return keyCode == PasteEnd
+}
+
+// IsShiftInsert checks if key code is Shift+Insert
+func IsShiftInsert(keyCode int) bool {
+	return keyCode == ShiftInsert
+}
+
+// GetTerminalInfo returns Windows terminal information
+func GetTerminalInfo() *WindowsTerminalInfo {
+	return detectWindowsTerminal()
 }
 
 // WaitForKey waits for ctrl-c, Return, Esc, Space, or 'q' to be pressed
