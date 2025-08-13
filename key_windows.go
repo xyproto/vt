@@ -193,7 +193,7 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 		if err != nil {
 			return 0, 0, err
 		}
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(tty.timeout):
 		return 0, 0, errors.New("read timeout")
 	}
 
@@ -276,7 +276,7 @@ func (tty *TTY) String() string {
 		if err != nil || numRead == 0 {
 			return ""
 		}
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(tty.timeout):
 		return "" // timeout
 	}
 	switch {
@@ -337,7 +337,7 @@ func (tty *TTY) Rune() rune {
 		if err != nil || numRead == 0 {
 			return rune(0)
 		}
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(tty.timeout):
 		return rune(0) // timeout
 	}
 
