@@ -73,3 +73,5 @@ cmd/move/move
 cmd/widget/widget
 cmd/color/color
 cmd/blink/blink
+key
+waitkey

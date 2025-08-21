@@ -1,5 +1,3 @@
-//go:build !windows
-
 package vt
 
 import (
@@ -8,167 +6,116 @@ import (
 	"strconv"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
-	"github.com/pkg/term"
+	"github.com/eiannone/keyboard"
 )
 
 var (
-	defaultTimeout = 2 * time.Millisecond
-	lastKey        int
+	defaultTimeout = 50 * time.Millisecond
 )
 
-// Key codes for 3-byte sequences (arrows, Home, End)
-var keyCodeLookup = map[[3]byte]int{
-	{27, 91, 65}:  253, // Up Arrow
-	{27, 91, 66}:  255, // Down Arrow
-	{27, 91, 67}:  254, // Right Arrow
-	{27, 91, 68}:  252, // Left Arrow
-	{27, 91, 'H'}: 1,   // Home (Ctrl-A)
-	{27, 91, 'F'}: 5,   // End (Ctrl-E)
+// Map keyboard.Key constants to vt key codes
+var keyboardToVTKeyMap = map[keyboard.Key]int{
+	keyboard.KeyArrowUp:    253, // Up Arrow
+	keyboard.KeyArrowDown:  255, // Down Arrow
+	keyboard.KeyArrowRight: 254, // Right Arrow
+	keyboard.KeyArrowLeft:  252, // Left Arrow
+	keyboard.KeyHome:       1,   // Home (Ctrl-A)
+	keyboard.KeyEnd:        5,   // End (Ctrl-E)
+	keyboard.KeyPgup:       251, // Page Up
+	keyboard.KeyPgdn:       250, // Page Down
+	keyboard.KeyInsert:     258, // Insert (mapped to Ctrl-Insert)
 }
 
-// Key codes for 4-byte sequences (Page Up, Page Down, Home, End)
-var pageNavLookup = map[[4]byte]int{
-	{27, 91, 49, 126}: 1,   // Home (ESC [1~)
-	{27, 91, 52, 126}: 5,   // End (ESC [4~)
-	{27, 91, 53, 126}: 251, // Page Up (custom code)
-	{27, 91, 54, 126}: 250, // Page Down (custom code)
-}
-
-// Key codes for 6-byte sequences (Ctrl-Insert)
-var ctrlInsertLookup = map[[6]byte]int{
-	{27, 91, 50, 59, 53, 126}: 258, // Ctrl-Insert (ESC [2;5~)
-}
-
-// String representations for 3-byte sequences
-var keyStringLookup = map[[3]byte]string{
-	{27, 91, 65}:  "↑", // Up Arrow
-	{27, 91, 66}:  "↓", // Down Arrow
-	{27, 91, 67}:  "→", // Right Arrow
-	{27, 91, 68}:  "←", // Left Arrow
-	{27, 91, 'H'}: "⇱", // Home
-	{27, 91, 'F'}: "⇲", // End
-}
-
-// String representations for 4-byte sequences
-var pageStringLookup = map[[4]byte]string{
-	{27, 91, 49, 126}: "⇱", // Home
-	{27, 91, 52, 126}: "⇲", // End
-	{27, 91, 53, 126}: "⇞", // Page Up
-	{27, 91, 54, 126}: "⇟", // Page Down
-}
-
-// String representations for 6-byte sequences (Ctrl-Insert)
-var ctrlInsertStringLookup = map[[6]byte]string{
-	{27, 91, 50, 59, 53, 126}: "⎘", // Ctrl-Insert (Copy)
+// Map keyboard.Key constants to Unicode symbols for string representation
+var keyboardToStringMap = map[keyboard.Key]string{
+	keyboard.KeyArrowUp:    "↑", // Up Arrow
+	keyboard.KeyArrowDown:  "↓", // Down Arrow
+	keyboard.KeyArrowRight: "→", // Right Arrow
+	keyboard.KeyArrowLeft:  "←", // Left Arrow
+	keyboard.KeyHome:       "⇱", // Home
+	keyboard.KeyEnd:        "⇲", // End
+	keyboard.KeyPgup:       "⇞", // Page Up
+	keyboard.KeyPgdn:       "⇟", // Page Down
+	keyboard.KeyInsert:     "⎘", // Insert (Copy symbol)
 }
 
 type TTY struct {
-	t       *term.Term
 	timeout time.Duration
+	open    bool
 }
 
-// NewTTY opens /dev/tty in raw and cbreak mode as a term.Term
+// NewTTY creates a new TTY instance using the keyboard package
 func NewTTY() (*TTY, error) {
-	t, err := term.Open("/dev/tty", term.RawMode, term.CBreakMode, term.ReadTimeout(defaultTimeout))
-	if err != nil {
-		return nil, err
-	}
-	return &TTY{t, defaultTimeout}, nil
+	return &TTY{
+		timeout: defaultTimeout,
+		open:    false,
+	}, nil
 }
 
 // SetTimeout sets a timeout for reading a key
 func (tty *TTY) SetTimeout(d time.Duration) {
 	tty.timeout = d
-	tty.t.SetReadTimeout(tty.timeout)
 }
 
-// Close will restore and close the raw terminal
+// Close will close the keyboard
 func (tty *TTY) Close() {
-	tty.t.Restore()
-	tty.t.Close()
+	if tty.open {
+		keyboard.Close()
+		tty.open = false
+	}
 }
 
-// asciiAndKeyCode processes input into an ASCII code or key code, handling multi-byte sequences like Ctrl-Insert
+// asciiAndKeyCode processes input using the keyboard package
 func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
-	bytes := make([]byte, 6) // Use 6 bytes to cover longer sequences like Ctrl-Insert
-	var numRead int
-
-	// Set the terminal into raw mode and non-blocking mode with a timeout
-	tty.RawMode()
-	tty.NoBlock()
-	tty.SetTimeout(tty.timeout)
-	// Read bytes from the terminal
-	numRead, err = tty.t.Read(bytes)
-
-	if err != nil {
-		// Restore the terminal settings
-		tty.Restore()
-		// Clear the key buffer
-		tty.t.Flush()
-		return
+	if !tty.open {
+		err = keyboard.Open()
+		if err != nil {
+			return 0, 0, err
+		}
+		tty.open = true
+		defer func() {
+			keyboard.Close()
+			tty.open = false
+		}()
 	}
 
-	// Handle multi-byte sequences
-	switch {
-	case numRead == 1:
-		ascii = int(bytes[0])
-	case numRead == 3:
-		seq := [3]byte{bytes[0], bytes[1], bytes[2]}
-		if code, found := keyCodeLookup[seq]; found {
-			keyCode = code
-			// Restore the terminal settings
-			tty.Restore()
-			// Clear the key buffer
-			tty.t.Flush()
-			return
+	// Use GetSingleKey for timeout behavior
+	done := make(chan bool, 1)
+	var r rune
+	var key keyboard.Key
+
+	go func() {
+		r, key, err = keyboard.GetKey()
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		if err != nil {
+			return 0, 0, err
 		}
-		// Not found, check if it's a printable character
-		r, _ := utf8.DecodeRune(bytes[:numRead])
-		if unicode.IsPrint(r) {
-			ascii = int(r)
-		}
-	case numRead == 4:
-		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
-		if code, found := pageNavLookup[seq]; found {
-			keyCode = code
-			// Restore the terminal settings
-			tty.Restore()
-			// Clear the key buffer
-			tty.t.Flush()
-			return
-		}
-	case numRead == 6:
-		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
-		if code, found := ctrlInsertLookup[seq]; found {
-			keyCode = code
-			// Restore the terminal settings
-			tty.Restore()
-			// Clear the key buffer
-			tty.t.Flush()
-			return
-		}
-	default:
-		// Attempt to decode as UTF-8
-		r, _ := utf8.DecodeRune(bytes[:numRead])
-		if unicode.IsPrint(r) {
-			ascii = int(r)
-		}
+	case <-time.After(tty.timeout):
+		return 0, 0, errors.New("read timeout")
 	}
 
-	// Restore the terminal settings
-	tty.Restore()
-	// Clear the key buffer
-	tty.t.Flush()
-	return
+	// Map keyboard keys to vt key codes
+	if vtKey, found := keyboardToVTKeyMap[key]; found {
+		keyCode = vtKey
+	} else if r != 0 {
+		ascii = int(r)
+	} else {
+		// Handle special keys that map directly to ASCII values
+		ascii = int(key)
+	}
+
+	return ascii, keyCode, nil
 }
 
 // Key reads the keycode or ASCII code and avoids repeated keys
 func (tty *TTY) Key() int {
 	ascii, keyCode, err := asciiAndKeyCode(tty)
 	if err != nil {
-		lastKey = 0
 		return 0
 	}
 	var key int
@@ -177,190 +124,155 @@ func (tty *TTY) Key() int {
 	} else {
 		key = ascii
 	}
-	if key == lastKey {
-		lastKey = 0
-		return 0
-	}
-	lastKey = key
+	// Don't filter repeated keys - let the application handle key repeats
 	return key
 }
 
-// String reads a string, handling key sequences and printable characters
+// String reads a string using the keyboard package
 func (tty *TTY) String() string {
-	bytes := make([]byte, 6)
-	var numRead int
-	// Set the terminal into raw mode with a timeout
-	tty.RawMode()
-	tty.SetTimeout(0)
-	// Read bytes from the terminal
-	numRead, err := tty.t.Read(bytes)
-	defer func() {
-		// Restore the terminal settings
-		tty.Restore()
-		tty.t.Flush()
-	}()
-	if err != nil || numRead == 0 {
+	if !tty.open {
+		err := keyboard.Open()
+		if err != nil {
+			return ""
+		}
+		tty.open = true
+		defer func() {
+			keyboard.Close()
+			tty.open = false
+		}()
+	}
+
+	r, key, err := keyboard.GetKey()
+	if err != nil {
 		return ""
 	}
-	switch {
-	case numRead == 1:
-		r := rune(bytes[0])
-		if unicode.IsPrint(r) {
-			return string(r)
-		}
-		return "c:" + strconv.Itoa(int(r))
-	case numRead == 3:
-		seq := [3]byte{bytes[0], bytes[1], bytes[2]}
-		if str, found := keyStringLookup[seq]; found {
-			return str
-		}
-		// Attempt to interpret as UTF-8 string
-		return string(bytes[:numRead])
-	case numRead == 4:
-		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
-		if str, found := pageStringLookup[seq]; found {
-			return str
-		}
-		return string(bytes[:numRead])
-	case numRead == 6:
-		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
-		if str, found := ctrlInsertStringLookup[seq]; found {
-			return str
-		}
-		fallthrough
-	default:
-		bytesLeftToRead, err := tty.t.Available()
-		if err == nil { // success
-			bytes2 := make([]byte, bytesLeftToRead)
-			numRead2, err := tty.t.Read(bytes2)
-			if err != nil { // error
-				// Just read the first read bytes
-				return string(bytes[:numRead])
-			}
-			return string(append(bytes[:numRead], bytes2[:numRead2]...))
-		}
+
+	// Check for special key mappings first
+	if str, found := keyboardToStringMap[key]; found {
+		return str
 	}
-	return string(bytes[:numRead])
+
+	// Return printable rune as string
+	if r != 0 && unicode.IsPrint(r) {
+		return string(r)
+	}
+
+	// Return control character representation
+	if key != 0 {
+		return "c:" + strconv.Itoa(int(key))
+	}
+
+	return ""
 }
 
-// Rune reads a rune, handling special sequences for arrows, Home, End, etc.
+// Rune reads a rune using the keyboard package
 func (tty *TTY) Rune() rune {
-	bytes := make([]byte, 6)
-	var numRead int
+	if !tty.open {
+		err := keyboard.Open()
+		if err != nil {
+			return rune(0)
+		}
+		tty.open = true
+		defer func() {
+			keyboard.Close()
+			tty.open = false
+		}()
+	}
 
-	// Set the terminal into raw mode with a timeout
-	tty.RawMode()
-	tty.SetTimeout(0)
-	// Read bytes from the terminal
-	numRead, err := tty.t.Read(bytes)
-	// Restore the terminal settings
-	tty.Restore()
-	tty.t.Flush()
-
-	if err != nil || numRead == 0 {
+	r, key, err := keyboard.GetKey()
+	if err != nil {
 		return rune(0)
 	}
 
-	switch {
-	case numRead == 1:
-		return rune(bytes[0])
-	case numRead == 3:
-		seq := [3]byte{bytes[0], bytes[1], bytes[2]}
-		if str, found := keyStringLookup[seq]; found {
-			return []rune(str)[0]
-		}
-		// Attempt to interpret as UTF-8 rune
-		r, _ := utf8.DecodeRune(bytes[:numRead])
-		return r
-	case numRead == 4:
-		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
-		if str, found := pageStringLookup[seq]; found {
-			return []rune(str)[0]
-		}
-		r, _ := utf8.DecodeRune(bytes[:numRead])
-		return r
-	case numRead == 6:
-		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
-		if str, found := ctrlInsertStringLookup[seq]; found {
-			return []rune(str)[0]
-		}
-		r, _ := utf8.DecodeRune(bytes[:numRead])
-		return r
-	default:
-		// Attempt to interpret as UTF-8 rune
-		r, _ := utf8.DecodeRune(bytes[:numRead])
+	// Check for special key mappings first
+	if str, found := keyboardToStringMap[key]; found {
+		// Return the first rune of the Unicode symbol
+		return []rune(str)[0]
+	}
+
+	// Return the actual rune if available
+	if r != 0 {
 		return r
 	}
+
+	// For control characters, return the key code as a rune
+	return rune(key)
 }
 
-// RawMode switches the terminal to raw mode
+// RawMode is a no-op since keyboard package handles terminal mode
 func (tty *TTY) RawMode() {
-	term.RawMode(tty.t)
+	// No-op: keyboard package handles terminal mode
 }
 
-// NoBlock sets the terminal to cbreak mode (non-blocking)
+// NoBlock is a no-op since keyboard package handles non-blocking mode
 func (tty *TTY) NoBlock() {
-	tty.t.SetCbreak()
+	// No-op: keyboard package handles non-blocking mode
 }
 
-// Restore the terminal to its original state
+// Restore is a no-op since keyboard package handles restoration
 func (tty *TTY) Restore() {
-	tty.t.Restore()
+	// No-op: keyboard package handles restoration
 }
 
-// Flush flushes the terminal output
+// Flush is a no-op since keyboard package handles flushing
 func (tty *TTY) Flush() {
-	tty.t.Flush()
+	// No-op: keyboard package handles flushing
 }
 
-// WriteString writes a string to the terminal
+// WriteString writes a string to stdout
 func (tty *TTY) WriteString(s string) error {
-	if n, err := tty.t.Write([]byte(s)); err != nil || n == 0 {
-		return errors.New("no bytes written to the TTY")
-	}
-	return nil
+	_, err := fmt.Print(s)
+	return err
 }
 
-// ReadString reads a string from the TTY with timeout
+// ReadString reads characters until a termination sequence using keyboard package
 func (tty *TTY) ReadString() (string, error) {
-	// Set up a timeout channel
+	if !tty.open {
+		err := keyboard.Open()
+		if err != nil {
+			return "", err
+		}
+		tty.open = true
+		defer func() {
+			keyboard.Close()
+			tty.open = false
+		}()
+	}
+
 	timeout := time.After(100 * time.Millisecond)
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 
 	go func() {
-		// Set raw mode temporarily
-		tty.RawMode()
-		defer tty.Restore()
-		defer tty.Flush()
-
-		var result []byte
-		buffer := make([]byte, 1)
-
+		var result []rune
 		for {
-			n, err := tty.t.Read(buffer)
+			r, key, err := keyboard.GetKey()
 			if err != nil {
 				errorChan <- err
 				return
 			}
-			if n > 0 {
-				// For terminal responses, look for bell character (0x07) which terminates OSC sequences
-				if buffer[0] == 0x07 || buffer[0] == '\a' {
-					resultChan <- string(result)
-					return
-				}
-				// Also break on ESC sequence end for some terminals
-				if len(result) > 0 && buffer[0] == '\\' && result[len(result)-1] == 0x1b {
-					resultChan <- string(result)
-					return
-				}
-				result = append(result, buffer[0])
 
-				// Prevent infinite reading - limit response size
-				if len(result) > 512 {
-					resultChan <- string(result)
-					return
-				}
+			// For terminal responses, look for bell character or ESC sequences
+			if key == 0x07 || r == '\a' {
+				resultChan <- string(result)
+				return
+			}
+			// Break on ESC sequence end
+			if len(result) > 0 && r == '\\' && result[len(result)-1] == 0x1b {
+				resultChan <- string(result)
+				return
+			}
+
+			if r != 0 {
+				result = append(result, r)
+			} else if key != 0 {
+				result = append(result, rune(key))
+			}
+
+			// Prevent infinite reading - limit response size
+			if len(result) > 512 {
+				resultChan <- string(result)
+				return
 			}
 		}
 	}()
@@ -371,35 +283,36 @@ func (tty *TTY) ReadString() (string, error) {
 	case err := <-errorChan:
 		return "", err
 	case <-timeout:
-		// Timeout - return empty string (no error, just no response from terminal)
 		return "", nil
 	}
 }
 
-// PrintRawBytes for debugging raw byte sequences
+// PrintRawBytes for debugging keyboard events
 func (tty *TTY) PrintRawBytes() {
-	bytes := make([]byte, 6)
-	var numRead int
+	if !tty.open {
+		err := keyboard.Open()
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		tty.open = true
+		defer func() {
+			keyboard.Close()
+			tty.open = false
+		}()
+	}
 
-	// Set the terminal into raw mode with a timeout
-	tty.RawMode()
-	tty.SetTimeout(0)
-	// Read bytes from the terminal
-	numRead, err := tty.t.Read(bytes)
-	// Restore the terminal settings
-	tty.Restore()
-	tty.t.Flush()
-
+	r, key, err := keyboard.GetKey()
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
-	fmt.Printf("Raw bytes: %v\n", bytes[:numRead])
+	fmt.Printf("Key event - Rune: %v (%c), Key: %v\n", int(r), r, key)
 }
 
-// Term will return the underlying term.Term
-func (tty *TTY) Term() *term.Term {
-	return tty.t
+// Term returns nil since we no longer use term.Term
+func (tty *TTY) Term() interface{} {
+	return nil
 }
 
 // ASCII returns the ASCII code of the key pressed
