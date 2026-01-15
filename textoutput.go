@@ -58,14 +58,24 @@ func (o *TextOutput) OutputTags(colors ...string) {
 	}
 }
 
-func Println(msg ...interface{})               { New().Println(msg...) }
-func Print(msg ...interface{})                 { New().Print(msg...) }
-func Printf(format string, msg ...interface{}) { New().Printf(format, msg...) }
+func Println(msg ...interface{})                { New().Println(msg...) }
+func Print(msg ...interface{})                  { New().Print(msg...) }
+func Printf(format string, msg ...interface{})  { New().Printf(format, msg...) }
+func EPrintln(msg ...interface{})               { New().EPrintln(msg...) }
+func EPrint(msg ...interface{})                 { New().EPrint(msg...) }
+func EPrintf(format string, msg ...interface{}) { New().EPrintf(format, msg...) }
 
 // Println writes a message to stdout if output is enabled
 func (o *TextOutput) Println(msg ...interface{}) {
 	if o.enabled {
 		fmt.Println(o.InterfaceTags(msg...))
+	}
+}
+
+// EPrintln writes a message to stderr if output is enabled
+func (o *TextOutput) EPrintln(msg ...interface{}) {
+	if o.enabled {
+		fmt.Fprintln(os.Stderr, o.InterfaceTags(msg...))
 	}
 }
 
@@ -76,10 +86,24 @@ func (o *TextOutput) Print(msg ...interface{}) {
 	}
 }
 
+// EPrint writes a message to stderr if output is enabled
+func (o *TextOutput) EPrint(msg ...interface{}) {
+	if o.enabled {
+		fmt.Fprint(os.Stderr, o.InterfaceTags(msg...))
+	}
+}
+
 // Printf writes a formatted message to stdout if output is enabled
 func (o *TextOutput) Printf(format string, args ...interface{}) {
 	if o.enabled {
 		fmt.Print(o.Tags(fmt.Sprintf(format, args...)))
+	}
+}
+
+// EPrintf writes a formatted message to stderr if output is enabled
+func (o *TextOutput) EPrintf(format string, args ...interface{}) {
+	if o.enabled {
+		fmt.Fprint(os.Stderr, o.Tags(fmt.Sprintf(format, args...)))
 	}
 }
 
