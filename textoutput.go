@@ -61,9 +61,9 @@ func (o *TextOutput) OutputTags(colors ...string) {
 func Println(msg ...interface{})                { New().Println(msg...) }
 func Print(msg ...interface{})                  { New().Print(msg...) }
 func Printf(format string, msg ...interface{})  { New().Printf(format, msg...) }
-func EPrintln(msg ...interface{})               { New().EPrintln(msg...) }
-func EPrint(msg ...interface{})                 { New().EPrint(msg...) }
-func EPrintf(format string, msg ...interface{}) { New().EPrintf(format, msg...) }
+func Eprintln(msg ...interface{})               { New().Eprintln(msg...) }
+func Eprint(msg ...interface{})                 { New().Eprint(msg...) }
+func Eprintf(format string, msg ...interface{}) { New().Eprintf(format, msg...) }
 
 // Println writes a message to stdout if output is enabled
 func (o *TextOutput) Println(msg ...interface{}) {
@@ -72,8 +72,8 @@ func (o *TextOutput) Println(msg ...interface{}) {
 	}
 }
 
-// EPrintln writes a message to stderr if output is enabled
-func (o *TextOutput) EPrintln(msg ...interface{}) {
+// Eprintln writes a message to stderr if output is enabled
+func (o *TextOutput) Eprintln(msg ...interface{}) {
 	if o.enabled {
 		fmt.Fprintln(os.Stderr, o.InterfaceTags(msg...))
 	}
@@ -86,8 +86,8 @@ func (o *TextOutput) Print(msg ...interface{}) {
 	}
 }
 
-// EPrint writes a message to stderr if output is enabled
-func (o *TextOutput) EPrint(msg ...interface{}) {
+// Eprint writes a message to stderr if output is enabled
+func (o *TextOutput) Eprint(msg ...interface{}) {
 	if o.enabled {
 		fmt.Fprint(os.Stderr, o.InterfaceTags(msg...))
 	}
@@ -100,8 +100,8 @@ func (o *TextOutput) Printf(format string, args ...interface{}) {
 	}
 }
 
-// EPrintf writes a formatted message to stderr if output is enabled
-func (o *TextOutput) EPrintf(format string, args ...interface{}) {
+// Eprintf writes a formatted message to stderr if output is enabled
+func (o *TextOutput) Eprintf(format string, args ...interface{}) {
 	if o.enabled {
 		fmt.Fprint(os.Stderr, o.Tags(fmt.Sprintf(format, args...)))
 	}
@@ -115,6 +115,11 @@ func (o *TextOutput) Disable() {
 // Enable text output
 func (o *TextOutput) Enable() {
 	o.enabled = true
+}
+
+// Enabled checks if the text output is enabled
+func (o *TextOutput) Enabled() bool {
+	return o.enabled
 }
 
 // Err writes an error message in red to stderr if output is enabled
