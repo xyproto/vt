@@ -12,17 +12,20 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer tty.Close()
 	tty.SetTimeout(10 * time.Millisecond)
+	tty.RawMode()
+	defer tty.Restore()
 	for {
-		key := tty.Key()
+		key := tty.KeyRaw()
 		if key != 0 {
-			fmt.Println(key)
+			fmt.Printf("%d\r\n", key)
 		}
 		if key == 27 {
 			if escCount == 0 {
-				fmt.Println("Press ESC again to exit")
+				fmt.Print("Press ESC again to exit\r\n")
 			} else {
-				fmt.Println("bye!")
+				fmt.Print("bye!\r\n")
 			}
 			escCount++
 		}

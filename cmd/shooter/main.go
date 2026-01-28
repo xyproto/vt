@@ -52,7 +52,10 @@ func main() {
 	}()
 
 	vt.Init()
-	defer vt.Close()
+	defer func() {
+		vt.Clear()
+		vt.Close()
+	}()
 
 	// The loop time that is aimed for
 	loopDuration := time.Millisecond * 10
