@@ -94,6 +94,7 @@ type TTY struct {
 	timeout    time.Duration
 	escTimeout time.Duration
 	reader     *inputReader
+	noBlock    bool
 }
 
 // NewTTY opens /dev/tty in raw mode as a term.Term
@@ -360,9 +361,13 @@ func parseSS3(buf []byte) (Event, int, bool, bool) {
 
 // Key reads the keycode or ASCII code and avoids repeated keys
 func (tty *TTY) Key() int {
-	tty.RawMode()
+	if !tty.noBlock {
+		tty.RawMode()
+	}
 	ev, err := tty.ReadEvent()
-	tty.Restore()
+	if !tty.noBlock {
+		tty.Restore()
+	}
 	if ev.Kind != EventNone {
 		tty.t.Flush()
 	}
@@ -525,9 +530,11 @@ func (tty *TTY) RawMode() {
 	term.RawMode(tty.t)
 }
 
-// NoBlock is a no-op since the terminal is already in raw mode
+// NoBlock keeps the terminal in raw mode to prevent key echo.
+// When enabled, Key() will not toggle between raw and cooked mode.
 func (tty *TTY) NoBlock() {
-	// No-op: terminal is already in raw mode which is non-blocking
+	tty.noBlock = true
+	tty.RawMode()
 }
 
 // Restore the terminal to its original state
