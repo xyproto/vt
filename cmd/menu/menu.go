@@ -4,9 +4,7 @@ import (
 	"errors"
 	"github.com/xyproto/vt"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 )
@@ -42,7 +40,7 @@ func Menu(title, titleColor string, choices []string, selectionDelay time.Durati
 		sigChan = make(chan os.Signal, 1)
 	)
 
-	signal.Notify(sigChan, syscall.SIGWINCH)
+	vt.SetupResizeHandler(sigChan)
 	go func() {
 		for range sigChan {
 			resizeMut.Lock()

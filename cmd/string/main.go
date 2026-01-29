@@ -15,13 +15,13 @@ func main() {
 	for {
 		key := tty.String()
 		if key != "" {
-			fmt.Println(key)
+			fmt.Print(key + "\r\n")
 		}
 		if key == "c:27" {
 			if escCount == 0 {
-				fmt.Println("Press ESC again to exit")
+				fmt.Print("Press ESC again to exit\r\n")
 			} else {
-				fmt.Println("bye!")
+				fmt.Print("bye!\r\n")
 			}
 			escCount++
 		}

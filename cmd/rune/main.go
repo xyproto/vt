@@ -17,16 +17,16 @@ func main() {
 		key := tty.Rune()
 		if key != rune(0) {
 			if unicode.IsPrint(key) {
-				fmt.Println(string(key))
+				fmt.Print(string(key) + "\r\n")
 			} else {
-				fmt.Printf("%U\n", key)
+				fmt.Printf("%U\r\n", key)
 			}
 		}
 		if key == rune(27) {
 			if escCount == 0 {
-				fmt.Println("Press ESC again to exit")
+				fmt.Print("Press ESC again to exit\r\n")
 			} else {
-				fmt.Println("bye!")
+				fmt.Print("bye!\r\n")
 			}
 			escCount++
 		}

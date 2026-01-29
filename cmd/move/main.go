@@ -3,9 +3,7 @@ package main
 import (
 	"github.com/xyproto/vt"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -89,7 +87,7 @@ func main() {
 
 	var draw sync.RWMutex
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGWINCH)
+	vt.SetupResizeHandler(sigChan)
 	go func() {
 		for range sigChan {
 			// Terminal was resized

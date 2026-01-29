@@ -96,7 +96,7 @@ type TTY struct {
 	reader     *inputReader
 }
 
-// NewTTY opens /dev/tty in raw and cbreak mode as a term.Term
+// NewTTY opens /dev/tty in raw mode as a term.Term
 func NewTTY() (*TTY, error) {
 	t, err := term.Open("/dev/tty", term.RawMode, term.ReadTimeout(defaultTimeout))
 	if err != nil {
@@ -525,9 +525,9 @@ func (tty *TTY) RawMode() {
 	term.RawMode(tty.t)
 }
 
-// NoBlock sets the terminal to cbreak mode (non-blocking)
+// NoBlock is a no-op since the terminal is already in raw mode
 func (tty *TTY) NoBlock() {
-	tty.t.SetCbreak()
+	// No-op: terminal is already in raw mode which is non-blocking
 }
 
 // Restore the terminal to its original state

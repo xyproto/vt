@@ -5,9 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -28,7 +26,7 @@ func main() {
 		bullets = make([]*Bullet, 0)
 	)
 
-	signal.Notify(sigChan, syscall.SIGWINCH)
+	vt.SetupResizeHandler(sigChan)
 	go func() {
 		for range sigChan {
 			resizeMut.Lock()

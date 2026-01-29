@@ -3,9 +3,7 @@ package main
 import (
 	"github.com/xyproto/vt"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -63,7 +61,7 @@ func main() {
 		resizeMut = &sync.RWMutex{}
 	)
 
-	signal.Notify(sigChan, syscall.SIGWINCH)
+	vt.SetupResizeHandler(sigChan)
 	go func() {
 		for range sigChan {
 			resizeMut.Lock()
