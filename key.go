@@ -98,7 +98,7 @@ type TTY struct {
 
 // NewTTY opens /dev/tty in raw and cbreak mode as a term.Term
 func NewTTY() (*TTY, error) {
-	t, err := term.Open("/dev/tty", term.RawMode, term.CBreakMode, term.ReadTimeout(defaultTimeout))
+	t, err := term.Open("/dev/tty", term.RawMode, term.ReadTimeout(defaultTimeout))
 	if err != nil {
 		return nil, err
 	}
