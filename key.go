@@ -530,8 +530,8 @@ func (tty *TTY) RawMode() {
 	term.RawMode(tty.t)
 }
 
-// NoBlock keeps the terminal in raw mode to prevent key echo.
-// When enabled, Key() will not toggle between raw and cooked mode.
+// NoBlock prevents Key() from toggling terminal modes.
+// Use this in game loops to prevent escape sequence characters from being echoed.
 func (tty *TTY) NoBlock() {
 	tty.noBlock = true
 	tty.RawMode()
