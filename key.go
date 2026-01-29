@@ -396,6 +396,8 @@ func (tty *TTY) Key() int {
 // KeyRaw reads a key without toggling raw mode or flushing input.
 // Callers should manage tty.RawMode() / tty.Restore() themselves.
 func (tty *TTY) KeyRaw() int {
+	// Ensure raw mode is active to avoid echoing escape sequences.
+	tty.RawMode()
 	ev, err := tty.ReadEvent()
 	if err != nil {
 		return 0
@@ -446,6 +448,8 @@ func (tty *TTY) String() string {
 // StringRaw reads a string without toggling raw mode or flushing input.
 // Callers should manage tty.RawMode() / tty.Restore() themselves.
 func (tty *TTY) StringRaw() string {
+	// Ensure raw mode is active to avoid echoing escape sequences.
+	tty.RawMode()
 	ev, err := tty.ReadEventBlocking()
 	if err != nil {
 		return ""
@@ -503,6 +507,8 @@ func (tty *TTY) Rune() rune {
 // RuneRaw reads a rune without toggling raw mode or flushing input.
 // Callers should manage tty.RawMode() / tty.Restore() themselves.
 func (tty *TTY) RuneRaw() rune {
+	// Ensure raw mode is active to avoid echoing escape sequences.
+	tty.RawMode()
 	ev, err := tty.ReadEventBlocking()
 	if err != nil {
 		return rune(0)
@@ -528,7 +534,7 @@ func (tty *TTY) RuneRaw() rune {
 
 // RawMode switches the terminal to raw mode
 func (tty *TTY) RawMode() {
-	term.RawMode(tty.t)
+	tty.t.SetRaw()
 }
 
 // NoBlock prevents Key() from toggling terminal modes.
