@@ -646,7 +646,7 @@ func (c *Canvas) HideCursorAndDraw() {
 	firstRun := len(c.oldchars) == 0
 	skipAll := !firstRun // true by default, except for the first run
 
-	size := c.w*c.h - 1
+	size := c.w * c.h
 	sb.Grow(int(size))
 
 	if !firstRun {
@@ -760,7 +760,7 @@ func (c *Canvas) Draw() {
 	firstRun := len(c.oldchars) == 0
 	skipAll := !firstRun // true by default, except for the first run
 
-	size := c.w*c.h - 1
+	size := c.w * c.h
 	sb.Grow(int(size))
 
 	if !firstRun {
