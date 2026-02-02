@@ -6,7 +6,7 @@ import "math"
 // given lightBackground, indicating if this is a "light" or "dark" terminal color scheme.
 func LowContrast(fg, bg AttributeColor, lightBackground bool) bool {
 	// defaultContrastThreshold is a relaxed minimum contrast ratio
-	const defaultContrastThreshold = 3.0
+	const defaultContrastThreshold = 3.5
 	return lowContrastLevelWithThreshold(fg, bg, lightBackground, defaultContrastThreshold)
 }
 
