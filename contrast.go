@@ -15,7 +15,12 @@ func lowContrastLevelWithThreshold(fg, bg AttributeColor, lightBackground bool, 
 	if minRatio <= 0 {
 		return false
 	}
-	if contrastRatio(fg, bg, lightBackground) < minRatio {
+	fr, fgG, fb := colorForContrast(fg, true, lightBackground)
+	br, bgG, bb := colorForContrast(bg, false, lightBackground)
+	if isGray(fr, fgG, fb) && isGray(br, bgG, bb) {
+		return true
+	}
+	if contrastRatioFromRGB(fr, fgG, fb, br, bgG, bb) < minRatio {
 		return true
 	}
 	return false
@@ -25,12 +30,20 @@ func lowContrastLevelWithThreshold(fg, bg AttributeColor, lightBackground bool, 
 func contrastRatio(fg, bg AttributeColor, lightBackground bool) float64 {
 	fr, fgG, fb := colorForContrast(fg, true, lightBackground)
 	br, bgG, bb := colorForContrast(bg, false, lightBackground)
+	return contrastRatioFromRGB(fr, fgG, fb, br, bgG, bb)
+}
+
+func contrastRatioFromRGB(fr, fgG, fb, br, bgG, bb float64) float64 {
 	l1 := luminance(fr, fgG, fb)
 	l2 := luminance(br, bgG, bb)
 	if l1 < l2 {
 		l1, l2 = l2, l1
 	}
 	return (l1 + 0.05) / (l2 + 0.05)
+}
+
+func isGray(r, g, b float64) bool {
+	return r == g && g == b
 }
 
 func colorForContrast(ac AttributeColor, isForeground bool, lightBackground bool) (r, g, b float64) {
