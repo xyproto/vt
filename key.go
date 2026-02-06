@@ -131,17 +131,30 @@ func (tty *TTY) SetEscTimeout(d time.Duration) {
 	tty.escTimeout = d
 }
 
-// FastInput reduces input latency for game loops and other real-time uses.
-func (tty *TTY) FastInput() {
-	if tty.fastRead {
-		return
-	}
-	f, err := os.OpenFile("/dev/tty", os.O_RDWR|syscall.O_NONBLOCK, 0)
-	if err == nil {
-		tty.fastFile = f
-		tty.fastRead = true
-		tty.SetTimeout(1 * time.Millisecond)
-		tty.SetEscTimeout(5 * time.Millisecond)
+// FastInput enables or disables low-latency input for game loops and other real-time uses.
+func (tty *TTY) FastInput(enable bool) {
+	if enable {
+		if tty.fastRead {
+			return
+		}
+		f, err := os.OpenFile("/dev/tty", os.O_RDWR|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			tty.fastFile = f
+			tty.fastRead = true
+			tty.SetTimeout(1 * time.Millisecond)
+			tty.SetEscTimeout(5 * time.Millisecond)
+		}
+	} else {
+		if !tty.fastRead {
+			return
+		}
+		if tty.fastFile != nil {
+			_ = tty.fastFile.Close()
+			tty.fastFile = nil
+		}
+		tty.fastRead = false
+		tty.SetTimeout(defaultTimeout)
+		tty.SetEscTimeout(defaultESCTimeout)
 	}
 }
 

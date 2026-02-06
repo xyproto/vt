@@ -16,7 +16,7 @@ func main() {
 		panic(err)
 	}
 	defer tty.Close()
-	tty.FastInput()
+	tty.FastInput(true)
 
 	// Mutex used when the terminal is resized
 	resizeMut := &sync.RWMutex{}
