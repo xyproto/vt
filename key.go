@@ -99,6 +99,7 @@ type TTY struct {
 	noBlock    bool
 	fastRead   bool
 	fastFile   *os.File
+	fastBuf    [256]byte
 }
 
 // NewTTY opens /dev/tty in raw and cbreak mode as a term.Term
@@ -139,9 +140,9 @@ func (tty *TTY) FastInput() {
 	if err == nil {
 		tty.fastFile = f
 		tty.fastRead = true
+		tty.SetTimeout(1 * time.Millisecond)
+		tty.SetEscTimeout(5 * time.Millisecond)
 	}
-	tty.SetTimeout(1 * time.Millisecond)
-	tty.SetEscTimeout(5 * time.Millisecond)
 }
 
 // Close will restore and close the raw terminal
@@ -273,7 +274,7 @@ func (tty *TTY) readIntoBufferFast(timeout time.Duration) error {
 	if timeout > 0 {
 		deadline = time.Now().Add(timeout)
 	}
-	tmp := make([]byte, 256)
+	tmp := tty.fastBuf[:]
 	for {
 		n, err := syscall.Read(int(tty.fastFile.Fd()), tmp)
 		if n > 0 {
@@ -281,6 +282,10 @@ func (tty *TTY) readIntoBufferFast(timeout time.Duration) error {
 		}
 		if err != nil {
 			if isTimeoutErr(err) {
+				if deadline.IsZero() {
+					time.Sleep(1 * time.Millisecond)
+					continue
+				}
 				return nil
 			}
 			return err
