@@ -591,8 +591,8 @@ func (tty *TTY) StringRaw() string {
 	}
 }
 
-// ReadStringEvent reads a string without toggling raw mode and flushes after events.
-// Callers should manage tty.RawMode() / tty.Restore() themselves.
+// ReadStringEvent reads a string, entering raw mode and flushing after events.
+// It does not call Restore; the caller is responsible for restoring the terminal.
 func (tty *TTY) ReadStringEvent() string {
 	tty.RawMode()
 	ev, err := tty.ReadEventBlocking()
