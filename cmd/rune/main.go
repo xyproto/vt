@@ -22,7 +22,7 @@ func main() {
 				fmt.Printf("%U\r\n", key)
 			}
 		}
-		if key == rune(27) {
+		if key == rune(vt.KeyEsc) {
 			if escCount == 0 {
 				fmt.Print("Press ESC again to exit\r\n")
 			} else {

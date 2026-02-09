@@ -2,43 +2,48 @@ package vt
 
 // Key constants
 const (
-	ctrlA        = 1
-	ctrlC        = 3
-	ctrlD        = 4
-	ctrlE        = 5
-	ctrlF        = 6
-	ctrlH        = 8
-	keyTab       = 9
-	ctrlL        = 12
-	keyEnter     = 13
-	ctrlQ        = 17
-	ctrlS        = 19
-	keyEsc       = 27
-	keyBackspace = 127
+	KeyCtrlA     = 1
+	KeyCtrlC     = 3
+	KeyCtrlD     = 4
+	KeyCtrlE     = 5
+	KeyCtrlF     = 6
+	KeyCtrlH     = 8
+	KeyTab       = 9
+	KeyCtrlL     = 12
+	KeyEnter     = 13
+	KeyCtrlN     = 14
+	KeyCtrlP     = 16
+	KeyCtrlQ     = 17
+	KeyCtrlS     = 19
+	KeyEsc       = 27
+	KeySpace     = 32
+	KeyBackspace = 127
 
-	arrowLeft  = 1000
-	arrowRight = 1001
-	arrowUp    = 1002
-	arrowDown  = 1003
-	delKey     = 1004
-	homeKey    = 1005
-	endKey     = 1006
-	pageUp     = 1007
-	pageDown   = 1008
+	KeyArrowLeft  = 1000
+	KeyArrowRight = 1001
+	KeyArrowUp    = 1002
+	KeyArrowDown  = 1003
+	KeyDelete     = 1004
+	KeyHome       = 1005
+	KeyEnd        = 1006
+	KeyPageUp     = 1007
+	KeyPageDown   = 1008
 
 	// Function keys
-	keyF1  = 1009
-	keyF2  = 1010
-	keyF3  = 1011
-	keyF4  = 1012
-	keyF5  = 1013
-	keyF6  = 1014
-	keyF7  = 1015
-	keyF8  = 1016
-	keyF9  = 1017
-	keyF10 = 1018
-	keyF11 = 1019
-	keyF12 = 1020
+	KeyF1  = 1009
+	KeyF2  = 1010
+	KeyF3  = 1011
+	KeyF4  = 1012
+	KeyF5  = 1013
+	KeyF6  = 1014
+	KeyF7  = 1015
+	KeyF8  = 1016
+	KeyF9  = 1017
+	KeyF10 = 1018
+	KeyF11 = 1019
+	KeyF12 = 1020
+
+	KeyCtrlInsert = 1021
 )
 
 // Modifiers
@@ -55,4 +60,21 @@ type KeyEvent struct {
 	Rune      rune   // The actual rune if applicable
 	Modifiers int    // Bitmask of modifiers
 	Name      string // Human readable name for debugging
+}
+
+type EventKind int
+
+const (
+	EventNone EventKind = iota
+	EventKey
+	EventRune
+	EventText
+	EventPaste
+)
+
+type Event struct {
+	Kind EventKind
+	Key  int
+	Rune rune
+	Text string
 }

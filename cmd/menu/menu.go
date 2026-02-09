@@ -97,31 +97,31 @@ func Menu(title, titleColor string, choices []string, selectionDelay time.Durati
 		// Handle events
 		key := tty.Key()
 		switch key {
-		case 253, 252, 107, 16: // Up, left, k or ctrl-p
+		case vt.KeyArrowUp, vt.KeyArrowLeft, 'k', vt.KeyCtrlP:
 			resizeMut.Lock()
 			menu.Up(c)
 			resizeMut.Unlock()
-		case 255, 254, 106, 14: // Down, right, j or ctrl-n
+		case vt.KeyArrowDown, vt.KeyArrowRight, 'j', vt.KeyCtrlN:
 			resizeMut.Lock()
 			menu.Down(c)
 			resizeMut.Unlock()
-		case 1: // Top, ctrl-a
+		case vt.KeyHome, vt.KeyCtrlA:
 			resizeMut.Lock()
 			menu.SelectFirst()
 			resizeMut.Unlock()
-		case 5: // Bottom, ctrl-e
+		case vt.KeyEnd, vt.KeyCtrlE:
 			resizeMut.Lock()
 			menu.SelectLast()
 			resizeMut.Unlock()
-		case 27, 113: // ESC or q
+		case vt.KeyEsc, 'q':
 			running = false
-		case 32, 13: // Space or Return
+		case vt.KeySpace, vt.KeyEnter:
 			resizeMut.Lock()
 			menu.Select()
 			resizeMut.Unlock()
 			running = false
-		case 48, 49, 50, 51, 52, 53, 54, 55, 56, 57: // 0 .. 9
-			number := uint(key - 48)
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			number := uint(key - '0')
 			resizeMut.Lock()
 			menu.SelectIndex(number)
 			resizeMut.Unlock()
@@ -146,7 +146,7 @@ func Menu(title, titleColor string, choices []string, selectionDelay time.Durati
 					if err == nil {
 						_, exists := keymap[letter]
 						// If the letter is not already stored in the keymap, and it's not q, j or k
-						if !exists && (letter != 113) && (letter != 106) && (letter != 107) {
+						if !exists && (letter != 'q') && (letter != 'j') && (letter != 'k') {
 							keymap[letter] = index
 							// Found a letter for this choice, move on
 							break

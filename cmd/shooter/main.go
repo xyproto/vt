@@ -100,25 +100,25 @@ func main() {
 		// Handle events
 		key = tty.Key()
 		switch key {
-		case 253: // Up
+		case vt.KeyArrowUp:
 			resizeMut.Lock()
 			moved = bob.Up(c)
 			resizeMut.Unlock()
-		case 255: // Down
+		case vt.KeyArrowDown:
 			resizeMut.Lock()
 			moved = bob.Down(c)
 			resizeMut.Unlock()
-		case 254: // Right
+		case vt.KeyArrowRight:
 			resizeMut.Lock()
 			moved = bob.Right(c)
 			resizeMut.Unlock()
-		case 252: // Left
+		case vt.KeyArrowLeft:
 			resizeMut.Lock()
 			moved = bob.Left(c)
 			resizeMut.Unlock()
-		case 27, 113: // ESC or q
+		case vt.KeyEsc, 'q':
 			running = false
-		case 32: // Space
+		case vt.KeySpace:
 			resizeMut.Lock()
 			bob.ToggleColor()
 			resizeMut.Unlock()
@@ -132,7 +132,7 @@ func main() {
 				// Fire a new bullet
 				bullets = append(bullets, NewBullet(bob.x+1, bob.y, 1, 0))
 			}
-		case 97: // a
+		case 'a':
 			// Write the canvas characters to file
 			resizeMut.RLock()
 			b := []byte(c.String())

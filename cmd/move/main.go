@@ -144,18 +144,18 @@ func main() {
 		// Handle events
 		draw.Lock()
 		switch tty.Key() {
-		case 253: // Up
+		case vt.KeyArrowUp:
 			moved = bob.Up(c)
-		case 255: // Down
+		case vt.KeyArrowDown:
 			moved = bob.Down(c)
-		case 254: // Right
+		case vt.KeyArrowRight:
 			moved = bob.Right(c)
-		case 252: // Left
+		case vt.KeyArrowLeft:
 			moved = bob.Left(c)
-		case 27, 113: // ESC or q
+		case vt.KeyEsc, 'q':
 			running = false
 			break
-		case 32: // Space
+		case vt.KeySpace:
 			bob.ToggleColor()
 		}
 		draw.Unlock()

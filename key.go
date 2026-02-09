@@ -25,38 +25,26 @@ var (
 
 // Key codes for CSI (ESC [) sequences and SS3 (ESC O) sequences.
 var csiKeyLookup = map[string]int{
-	"[A":    253, // Up Arrow
-	"[B":    255, // Down Arrow
-	"[C":    254, // Right Arrow
-	"[D":    252, // Left Arrow
-	"[H":    1,   // Home
-	"[F":    5,   // End
-	"[1~":   1,   // Home
-	"[4~":   5,   // End
-	"[5~":   251, // Page Up
-	"[6~":   250, // Page Down
-	"[2;5~": 258, // Ctrl-Insert
+	"[A":    KeyArrowUp,
+	"[B":    KeyArrowDown,
+	"[C":    KeyArrowRight,
+	"[D":    KeyArrowLeft,
+	"[H":    KeyHome,
+	"[F":    KeyEnd,
+	"[1~":   KeyHome,
+	"[4~":   KeyEnd,
+	"[5~":   KeyPageUp,
+	"[6~":   KeyPageDown,
+	"[2;5~": KeyCtrlInsert,
 }
 
 var ss3KeyLookup = map[byte]int{
-	'A': 253, // Up Arrow
-	'B': 255, // Down Arrow
-	'C': 254, // Right Arrow
-	'D': 252, // Left Arrow
-	'H': 1,   // Home
-	'F': 5,   // End
-}
-
-var keyCodeToString = map[int]string{
-	253: "↑",
-	255: "↓",
-	254: "→",
-	252: "←",
-	1:   "⇱",
-	5:   "⇲",
-	251: "⇞",
-	250: "⇟",
-	258: "⎘",
+	'A': KeyArrowUp,
+	'B': KeyArrowDown,
+	'C': KeyArrowRight,
+	'D': KeyArrowLeft,
+	'H': KeyHome,
+	'F': KeyEnd,
 }
 
 const (
@@ -66,23 +54,6 @@ const (
 	enableBracketedPaste  = "\x1b[?2004h"
 	disableBracketedPaste = "\x1b[?2004l"
 )
-
-type EventKind int
-
-const (
-	EventNone EventKind = iota
-	EventKey
-	EventRune
-	EventText
-	EventPaste
-)
-
-type Event struct {
-	Kind EventKind
-	Key  int
-	Rune rune
-	Text string
-}
 
 type inputReader struct {
 	buf         []byte
@@ -566,10 +537,7 @@ func (tty *TTY) String() string {
 	case EventText:
 		return ev.Text
 	case EventKey:
-		if s, ok := keyCodeToString[ev.Key]; ok {
-			return s
-		}
-		return "c:" + strconv.Itoa(ev.Key)
+		return KeySymbol(ev.Key)
 	case EventRune:
 		if unicode.IsPrint(ev.Rune) {
 			return string(ev.Rune)
@@ -595,10 +563,7 @@ func (tty *TTY) StringRaw() string {
 	case EventText:
 		return ev.Text
 	case EventKey:
-		if s, ok := keyCodeToString[ev.Key]; ok {
-			return s
-		}
-		return "c:" + strconv.Itoa(ev.Key)
+		return KeySymbol(ev.Key)
 	case EventRune:
 		if unicode.IsPrint(ev.Rune) {
 			return string(ev.Rune)
@@ -626,10 +591,7 @@ func (tty *TTY) ReadStringEvent() string {
 	case EventText:
 		return ev.Text
 	case EventKey:
-		if s, ok := keyCodeToString[ev.Key]; ok {
-			return s
-		}
-		return "c:" + strconv.Itoa(ev.Key)
+		return KeySymbol(ev.Key)
 	case EventRune:
 		if unicode.IsPrint(ev.Rune) {
 			return string(ev.Rune)
@@ -655,7 +617,8 @@ func (tty *TTY) Rune() rune {
 	case EventRune:
 		return ev.Rune
 	case EventKey:
-		if s, ok := keyCodeToString[ev.Key]; ok {
+		s := KeySymbol(ev.Key)
+		if len(s) > 0 {
 			return []rune(s)[0]
 		}
 	case EventText:
@@ -683,7 +646,8 @@ func (tty *TTY) RuneRaw() rune {
 	case EventRune:
 		return ev.Rune
 	case EventKey:
-		if s, ok := keyCodeToString[ev.Key]; ok {
+		s := KeySymbol(ev.Key)
+		if len(s) > 0 {
 			return []rune(s)[0]
 		}
 	case EventText:
@@ -853,7 +817,7 @@ func WaitForKey() {
 	defer r.Close()
 	for {
 		switch r.Key() {
-		case 3, 13, 27, 32, 113:
+		case KeyCtrlC, KeyEnter, KeyEsc, KeySpace, 'q':
 			return
 		}
 	}

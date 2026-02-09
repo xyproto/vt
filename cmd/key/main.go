@@ -21,7 +21,7 @@ func main() {
 		if key != 0 {
 			fmt.Printf("%d\r\n", key)
 		}
-		if key == 27 {
+		if key == vt.KeyEsc {
 			if escCount == 0 {
 				fmt.Print("Press ESC again to exit\r\n")
 			} else {
