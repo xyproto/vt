@@ -7,6 +7,7 @@ require (
 	github.com/pkg/term v1.1.0
 	github.com/xyproto/burnfont v1.2.3
 	github.com/xyproto/env/v2 v2.5.4
+	golang.org/x/term v0.40.0
 )
 
 require (
