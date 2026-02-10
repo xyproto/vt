@@ -71,6 +71,27 @@ var legacyCtrlInsertStringLookup = map[[6]byte]string{
 	{27, 91, 50, 59, 53, 126}: "⎘", // Ctrl-Insert (Copy)
 }
 
+// Legacy key code lookup maps (for Key/KeyRaw functions)
+var legacyKeyCodeLookup = map[[3]byte]int{
+	{27, 91, 65}:  KeyArrowUp,
+	{27, 91, 66}:  KeyArrowDown,
+	{27, 91, 67}:  KeyArrowRight,
+	{27, 91, 68}:  KeyArrowLeft,
+	{27, 91, 'H'}: KeyHome,
+	{27, 91, 'F'}: KeyEnd,
+}
+
+var legacyPageCodeLookup = map[[4]byte]int{
+	{27, 91, 49, 126}: KeyHome,
+	{27, 91, 52, 126}: KeyEnd,
+	{27, 91, 53, 126}: KeyPageUp,
+	{27, 91, 54, 126}: KeyPageDown,
+}
+
+var legacyCtrlInsertCodeLookup = map[[6]byte]int{
+	{27, 91, 50, 59, 53, 126}: KeyCtrlInsert,
+}
+
 // isBasicTerminal returns true for terminals that need the legacy
 // blocking read approach (Linux console, VT100, etc.)
 func isBasicTerminal() bool {
@@ -516,26 +537,38 @@ func (tty *TTY) Key() int {
 	if !tty.noBlock {
 		tty.RawMode()
 	}
-	ev, err := tty.ReadEvent()
+
+	var key int
+
+	// Use legacy blocking read for basic terminals (Linux console, VT100)
+	if isBasicTerminal() {
+		key = tty.keyRawLegacy()
+	} else {
+		ev, err := tty.ReadEvent()
+		if ev.Kind != EventNone {
+			tty.t.Flush()
+		}
+		if err != nil {
+			if !tty.noBlock {
+				tty.Restore()
+			}
+			lastKey = 0
+			return 0
+		}
+		switch ev.Kind {
+		case EventKey:
+			key = ev.Key
+		case EventRune:
+			key = int(ev.Rune)
+		default:
+			key = 0
+		}
+	}
+
 	if !tty.noBlock {
 		tty.Restore()
 	}
-	if ev.Kind != EventNone {
-		tty.t.Flush()
-	}
-	if err != nil {
-		lastKey = 0
-		return 0
-	}
-	var key int
-	switch ev.Kind {
-	case EventKey:
-		key = ev.Key
-	case EventRune:
-		key = int(ev.Rune)
-	default:
-		key = 0
-	}
+
 	if key == lastKey {
 		lastKey = 0
 		return 0
@@ -549,6 +582,12 @@ func (tty *TTY) Key() int {
 func (tty *TTY) KeyRaw() int {
 	// Ensure raw mode is active to avoid echoing escape sequences.
 	tty.RawMode()
+
+	// Use legacy blocking read for basic terminals (Linux console, VT100)
+	if isBasicTerminal() {
+		return tty.keyRawLegacy()
+	}
+
 	ev, err := tty.ReadEvent()
 	if err != nil {
 		return 0
@@ -563,6 +602,45 @@ func (tty *TTY) KeyRaw() int {
 		key = 0
 	}
 	return key
+}
+
+// keyRawLegacy uses the old blocking read approach for key codes.
+func (tty *TTY) keyRawLegacy() int {
+	bytes := make([]byte, 6)
+	tty.SetTimeout(tty.timeout)
+	numRead, err := tty.t.Read(bytes)
+	if err != nil || numRead == 0 {
+		return 0
+	}
+	switch {
+	case numRead == 1:
+		return int(bytes[0])
+	case numRead == 3:
+		seq := [3]byte{bytes[0], bytes[1], bytes[2]}
+		if code, found := legacyKeyCodeLookup[seq]; found {
+			return code
+		}
+		r, _ := utf8.DecodeRune(bytes[:numRead])
+		if unicode.IsPrint(r) {
+			return int(r)
+		}
+	case numRead == 4:
+		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
+		if code, found := legacyPageCodeLookup[seq]; found {
+			return code
+		}
+	case numRead == 6:
+		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
+		if code, found := legacyCtrlInsertCodeLookup[seq]; found {
+			return code
+		}
+	default:
+		r, _ := utf8.DecodeRune(bytes[:numRead])
+		if unicode.IsPrint(r) {
+			return int(r)
+		}
+	}
+	return 0
 }
 
 // String reads a string, handling key sequences and printable characters
@@ -678,6 +756,12 @@ func (tty *TTY) stringRawLegacy() string {
 // It does not call Restore; the caller is responsible for restoring the terminal.
 func (tty *TTY) ReadStringEvent() string {
 	tty.RawMode()
+
+	// Use legacy blocking read for basic terminals (Linux console, VT100)
+	if isBasicTerminal() {
+		return tty.stringRawLegacy()
+	}
+
 	ev, err := tty.ReadEventBlocking()
 	if ev.Kind != EventNone {
 		tty.t.Flush()

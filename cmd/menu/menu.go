@@ -105,11 +105,11 @@ func Menu(title, titleColor string, choices []string, selectionDelay time.Durati
 			resizeMut.Lock()
 			menu.Down(c)
 			resizeMut.Unlock()
-		case vt.KeyHome, vt.KeyCtrlA:
+		case vt.KeyHome: // Also KeyCtrlA
 			resizeMut.Lock()
 			menu.SelectFirst()
 			resizeMut.Unlock()
-		case vt.KeyEnd, vt.KeyCtrlE:
+		case vt.KeyEnd: // Also KeyCtrlE
 			resizeMut.Lock()
 			menu.SelectLast()
 			resizeMut.Unlock()
