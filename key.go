@@ -113,6 +113,11 @@ func isBasicTerminal() bool {
 	return false
 }
 
+// legacyInputEnabled returns true if the old blocking input parser should be used.
+func legacyInputEnabled() bool {
+	return env.Bool("VT_LEGACY_INPUT") || isBasicTerminal()
+}
+
 const (
 	esc                   = 0x1b
 	bracketedPasteStart   = "\x1b[200~"
@@ -541,7 +546,7 @@ func (tty *TTY) Key() int {
 	var key int
 
 	// Use legacy blocking read for basic terminals (Linux console, VT100)
-	if isBasicTerminal() {
+	if legacyInputEnabled() {
 		key = tty.keyRawLegacy()
 	} else {
 		ev, err := tty.ReadEvent()
@@ -584,7 +589,7 @@ func (tty *TTY) KeyRaw() int {
 	tty.RawMode()
 
 	// Use legacy blocking read for basic terminals (Linux console, VT100)
-	if isBasicTerminal() {
+	if legacyInputEnabled() {
 		return tty.keyRawLegacy()
 	}
 
@@ -679,7 +684,7 @@ func (tty *TTY) StringRaw() string {
 
 	// Use legacy blocking read for basic terminals (Linux console, VT100)
 	// where termios timeout-based escape sequence assembly doesn't work reliably.
-	if isBasicTerminal() {
+	if legacyInputEnabled() {
 		return tty.stringRawLegacy()
 	}
 
@@ -758,7 +763,7 @@ func (tty *TTY) ReadStringEvent() string {
 	tty.RawMode()
 
 	// Use legacy blocking read for basic terminals (Linux console, VT100)
-	if isBasicTerminal() {
+	if legacyInputEnabled() {
 		return tty.stringRawLegacy()
 	}
 
