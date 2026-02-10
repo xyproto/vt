@@ -56,10 +56,10 @@ const (
 
 // KeyEvent represents a keyboard event
 type KeyEvent struct {
-	Key       int    // One of the key constants or a rune value
-	Rune      rune   // The actual rune if applicable
-	Modifiers int    // Bitmask of modifiers
 	Name      string // Human readable name for debugging
+	Key       int    // One of the key constants or a rune value
+	Modifiers int    // Bitmask of modifiers
+	Rune      rune   // The actual rune if applicable
 }
 
 type EventKind int
@@ -73,8 +73,8 @@ const (
 )
 
 type Event struct {
+	Text string
 	Kind EventKind
 	Key  int
 	Rune rune
-	Text string
 }

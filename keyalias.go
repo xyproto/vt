@@ -58,7 +58,6 @@ var keySymbolMap = map[int]string{
 	KeyCtrlInsert: "⎘",
 	KeyTab:        "⇥",
 	KeyEnter:      "⏎",
-	KeyEsc:        "⎋",
 }
 
 var nameToKeyMap map[string]int
@@ -122,4 +121,17 @@ func KeyFromName(name string) int {
 		return int(name[0])
 	}
 	return 0
+}
+
+// KeyRune returns a rune for a key constant.
+// For special keys like arrows, returns the symbol rune (↑, ↓, etc.).
+// For other keys like Esc, returns rune(key) directly.
+func KeyRune(key int) rune {
+	if sym, ok := keySymbolMap[key]; ok {
+		runes := []rune(sym)
+		if len(runes) > 0 {
+			return runes[0]
+		}
+	}
+	return rune(key)
 }

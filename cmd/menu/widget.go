@@ -6,19 +6,19 @@ import (
 
 type MenuWidget struct {
 	title      string // title
-	w          uint   // width
-	h          uint   // height (number of menu items)
-	y          uint   // current position
-	oldy       uint   // previous position
 	fg         string // foreground color
 	active     string // active (selected) color
 	hi         string // highlight color
-	marginLeft int    // margin, may be negative?
-	marginTop  int    // margin, may be negative?
-	choices    []string
-	selected   int
 	titleColor string
 	arrowColor string
+	choices    []string
+	w          uint // width
+	h          uint // height (number of menu items)
+	y          uint // current position
+	oldy       uint // previous position
+	marginLeft int  // margin, may be negative?
+	marginTop  int  // margin, may be negative?
+	selected   int
 }
 
 func NewMenuWidget(title, titleColor string, choices []string, fg, hi, active, arrowColor string, canvasWidth, canvasHeight uint) *MenuWidget {
