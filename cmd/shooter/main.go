@@ -56,7 +56,7 @@ func main() {
 	}()
 
 	// The loop time that is aimed for
-	loopDuration := time.Millisecond * 10
+	loopDuration := time.Millisecond * 2
 	start := time.Now()
 
 	running := true
