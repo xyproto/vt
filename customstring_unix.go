@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 	"unicode"
+
+	"golang.org/x/sys/unix"
 )
 
 // CustomString reads a key string like String(), but preserves any pending
@@ -16,20 +18,22 @@ import (
 // Differences from String():
 //   - Saves and restores timeout via SetTimeout instead of Restore()+Flush(),
 //     so the terminal stays in raw mode and pending input is preserved.
-//   - When the first byte is ESC, a short timed follow-up read collects the
-//     rest of the escape sequence, preventing partial-sequence splits.
-//   - For unrecognized 6-byte sequences, returns only the bytes read
-//     instead of consuming additional available input.
+//   - When the first byte is ESC, reads the escape sequence byte-by-byte
+//     to avoid consuming any trailing paste data.
 func (tty *TTY) CustomString() string {
-	buf := make([]byte, 6)
+	buf := make([]byte, 1)
 
 	// Save timeout before SetTimeout(0) overwrites it
 	savedTimeout := tty.timeout
 
 	tty.RawMode()
-	tty.SetTimeout(0) // VMIN=1: block until at least 1 byte
 
-	n, err := tty.t.Read(buf)
+	// Blocking read for first byte (VMIN=1, VTIME=0)
+	tty.SetTimeout(0)
+	n, err := unix.Read(tty.fd, buf)
+	if n < 0 {
+		n = 0
+	}
 
 	// Restore the saved timeout without flushing pending input
 	defer tty.SetTimeout(savedTimeout)
@@ -38,45 +42,77 @@ func (tty *TTY) CustomString() string {
 		return ""
 	}
 
-	// If only the ESC byte arrived, do a short timed read to collect
-	// the remaining bytes of a multi-byte escape sequence.
-	if n == 1 && buf[0] == 27 {
-		tty.SetTimeout(50 * time.Millisecond)
-		n2, _ := tty.t.Read(buf[1:])
-		n += n2
-	}
+	b := buf[0]
 
-	switch {
-	case n == 1:
-		r := rune(buf[0])
+	// Non-ESC single byte: return immediately
+	if b != 27 {
+		r := rune(b)
 		if unicode.IsPrint(r) {
 			return string(r)
 		}
-		return "c:" + strconv.Itoa(int(r))
-
-	case n == 3:
-		seq := [3]byte{buf[0], buf[1], buf[2]}
-		if s, found := keyStringLookup[seq]; found {
-			return s
-		}
-		return string(buf[:n])
-
-	case n == 4:
-		seq := [4]byte{buf[0], buf[1], buf[2], buf[3]}
-		if s, found := pageStringLookup[seq]; found {
-			return s
-		}
-		return string(buf[:n])
-
-	case n == 6:
-		seq := [6]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]}
-		if s, found := ctrlInsertStringLookup[seq]; found {
-			return s
-		}
-		// Return just what was read; do NOT consume additional
-		// available bytes, since they may be paste data.
-		return string(buf[:n])
+		return "c:" + strconv.Itoa(int(b))
 	}
 
-	return string(buf[:n])
+	// ESC byte received — collect the rest of the escape sequence
+	// one byte at a time so we stop exactly at the sequence boundary.
+	var seq []byte
+	seq = append(seq, b)
+
+	escTimeout := 50 * time.Millisecond
+
+	// Read the next byte with a short timeout; if nothing follows ESC, it's a bare ESC
+	one := make([]byte, 1)
+	tty.SetTimeout(escTimeout)
+	n, err = unix.Read(tty.fd, one)
+	if n < 0 {
+		n = 0
+	}
+	if err != nil || n == 0 {
+		return "c:27"
+	}
+	seq = append(seq, one[0])
+
+	// If second byte is '[', this is a CSI sequence (ESC [ ... finalByte)
+	if one[0] == '[' {
+		// Read parameter/intermediate bytes until a final byte (0x40-0x7E) arrives
+		for {
+			tty.SetTimeout(escTimeout)
+			n, err = unix.Read(tty.fd, one)
+			if n < 0 {
+				n = 0
+			}
+			if err != nil || n == 0 {
+				break
+			}
+			seq = append(seq, one[0])
+			// Final byte of a CSI sequence is in the range 0x40–0x7E (@ through ~)
+			if one[0] >= 0x40 && one[0] <= 0x7E {
+				break
+			}
+		}
+	}
+
+	// Now match against the known lookup tables
+	switch len(seq) {
+	case 3:
+		var key [3]byte
+		copy(key[:], seq)
+		if s, found := keyStringLookup[key]; found {
+			return s
+		}
+	case 4:
+		var key [4]byte
+		copy(key[:], seq)
+		if s, found := pageStringLookup[key]; found {
+			return s
+		}
+	case 6:
+		var key [6]byte
+		copy(key[:], seq)
+		if s, found := ctrlInsertStringLookup[key]; found {
+			return s
+		}
+	}
+
+	return string(seq)
 }
