@@ -4,6 +4,7 @@ package vt
 
 import (
 	"strconv"
+	"time"
 	"unicode"
 )
 
@@ -13,23 +14,36 @@ import (
 // by paste data — flushing the buffer after reading the key would lose it.
 //
 // Differences from String():
-//   - Restores timeout via SetTimeout instead of Restore()+Flush(),
+//   - Saves and restores timeout via SetTimeout instead of Restore()+Flush(),
 //     so the terminal stays in raw mode and pending input is preserved.
+//   - When the first byte is ESC, a short timed follow-up read collects the
+//     rest of the escape sequence, preventing partial-sequence splits.
 //   - For unrecognized 6-byte sequences, returns only the bytes read
 //     instead of consuming additional available input.
 func (tty *TTY) CustomString() string {
 	buf := make([]byte, 6)
 
+	// Save timeout before SetTimeout(0) overwrites it
+	savedTimeout := tty.timeout
+
 	tty.RawMode()
-	tty.SetTimeout(0) // block until at least 1 byte
+	tty.SetTimeout(0) // VMIN=1: block until at least 1 byte
 
 	n, err := tty.t.Read(buf)
 
-	// Restore the read timeout without flushing pending input
-	defer tty.SetTimeout(tty.timeout)
+	// Restore the saved timeout without flushing pending input
+	defer tty.SetTimeout(savedTimeout)
 
 	if err != nil || n == 0 {
 		return ""
+	}
+
+	// If only the ESC byte arrived, do a short timed read to collect
+	// the remaining bytes of a multi-byte escape sequence.
+	if n == 1 && buf[0] == 27 {
+		tty.SetTimeout(50 * time.Millisecond)
+		n2, _ := tty.t.Read(buf[1:])
+		n += n2
 	}
 
 	switch {
