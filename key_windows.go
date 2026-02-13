@@ -45,32 +45,42 @@ func NewTTY() (*TTY, error) {
 		return nil, fmt.Errorf("stdin is not a terminal and CONIN$ could not be opened: %w", err)
 	}
 
-	// We don't set raw mode here immediately, unlike unix version which does logic in NewTTY.
-	// But the unix version in key.go DOES set raw mode in NewTTY.
-	// Let's do the same.
-
-	// Save original state (by making raw and then restoring? No, MakeRaw returns the *old* state).
-	// But we want to keep the old state to restore later.
-	// And we want to be in raw mode.
-	orig, err := term.MakeRaw(fd)
-	if err != nil {
-		return nil, err
-	}
-
-	// If this is a real console input handle, prefer native KEY_EVENT decoding.
-	// In that mode, VT input translation is counterproductive because arrows
-	// become ESC sequences (which can look like plain Escape presses).
 	handle := windows.Handle(fd)
+
+	// Check if this is a real console before setting raw mode
 	var mode uint32
-	useConsoleInput := false
-	if err := windows.GetConsoleMode(handle, &mode); err == nil {
-		useConsoleInput = true
-		// ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
-		const EnableVirtualTerminalInput = 0x0200
-		// Explicitly disable VT input for this reader so arrow/home/end/page keys
-		// are exposed as virtual key events instead of ESC-prefixed byte streams.
-		if mode&EnableVirtualTerminalInput != 0 {
-			_ = windows.SetConsoleMode(handle, mode&^EnableVirtualTerminalInput)
+	useConsoleInput := windows.GetConsoleMode(handle, &mode) == nil
+
+	var orig *term.State
+	var err error
+
+	if useConsoleInput {
+		// For console input, set raw mode manually without VT input
+		// Save original mode
+		orig = &term.State{}
+		if state, err := term.GetState(fd); err == nil {
+			orig = state
+		}
+
+		// Flush any existing input before changing modes
+		windows.FlushConsoleInputBuffer(handle)
+
+		// Set raw mode: disable echo, line input, and processed input
+		// But do NOT enable VT input
+		const (
+			ENABLE_ECHO_INPUT      = 0x0004
+			ENABLE_LINE_INPUT      = 0x0002
+			ENABLE_PROCESSED_INPUT = 0x0001
+		)
+		mode &^= (ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT)
+		if err := windows.SetConsoleMode(handle, mode); err != nil {
+			return nil, err
+		}
+	} else {
+		// For PTY/Git Bash, use standard raw mode with VT sequences
+		orig, err = term.MakeRaw(fd)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -80,6 +90,7 @@ func NewTTY() (*TTY, error) {
 		timeout:         defaultTimeout,
 		useConsoleInput: useConsoleInput,
 		conin:           conin,
+		pending:         make([]byte, 0),
 	}, nil
 }
 
@@ -222,6 +233,15 @@ func asciiAndKeyCodeConsole(tty *TTY) (ascii, keyCode int, err error) {
 	}
 
 	for {
+		// Check if events are available before reading to avoid blocking
+		var numEvents uint32
+		if err := windows.GetNumberOfConsoleInputEvents(handle, &numEvents); err != nil {
+			return 0, 0, err
+		}
+		if numEvents == 0 {
+			return 0, 0, nil
+		}
+
 		rec, n, readErr := readOneConsoleInputRecord(handle)
 		if readErr != nil {
 			return 0, 0, readErr
@@ -503,16 +523,23 @@ func (tty *TTY) Rune() rune {
 
 // RawMode switches the terminal to raw mode
 func (tty *TTY) RawMode() {
-	// Already in raw mode if NewTTY was called?
-	// But maybe we restored it.
-	// term.MakeRaw returns new state, but we don't need it if we just want to set it.
-	// Actually we should store the state if we want to toggle.
-	// But for now, let's just call MakeRaw again?
-	// MakeRaw returns the *previous* state.
-	// If we are already raw, it returns raw state.
-	// Warning: calling MakeRaw repeatedly might nest things?
-	// term.MakeRaw just calls SetConsoleMode.
-	term.MakeRaw(tty.fd)
+	if tty.useConsoleInput {
+		// For console input, just ensure raw mode is set without VT input
+		handle := windows.Handle(tty.fd)
+		var mode uint32
+		if err := windows.GetConsoleMode(handle, &mode); err == nil {
+			const (
+				ENABLE_ECHO_INPUT      = 0x0004
+				ENABLE_LINE_INPUT      = 0x0002
+				ENABLE_PROCESSED_INPUT = 0x0001
+			)
+			mode &^= (ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT)
+			windows.SetConsoleMode(handle, mode)
+		}
+	} else {
+		// For PTY/Git Bash, use standard raw mode with VT sequences
+		term.MakeRaw(tty.fd)
+	}
 }
 
 // NoBlock - Windows doesn't easily support non-blocking ReadFile without overlapped IO.
