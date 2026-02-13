@@ -129,6 +129,12 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 		return 0, 0, err
 	}
 
+	// In byte-stream terminals, escape sequences may arrive split across reads.
+	// If we got a leading ESC, briefly gather any immediately following bytes.
+	if bytes[0] == 27 && numRead < len(bytes) {
+		numRead = tty.readEscapeContinuation(bytes, numRead)
+	}
+
 	// Handle multi-byte sequences (same lookup tables as key.go)
 	// We need to access the lookup tables from key.go.
 	// Since they are in the same package (vt), we can access them if they are exported or in same package.
@@ -169,6 +175,25 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 		}
 	}
 	return
+}
+
+func (tty *TTY) readEscapeContinuation(buf []byte, n int) int {
+	if n >= len(buf) {
+		return n
+	}
+	origTimeout := tty.timeout
+	// Continuation window to complete split key sequences from PTY/pipe terminals.
+	tty.timeout = 30 * time.Millisecond
+	defer func() { tty.timeout = origTimeout }()
+
+	for n < len(buf) {
+		m, err := tty.readWithTimeout(buf[n : n+1])
+		if err != nil || m == 0 {
+			break
+		}
+		n += m
+	}
+	return n
 }
 
 func asciiAndKeyCodeConsole(tty *TTY) (ascii, keyCode int, err error) {
