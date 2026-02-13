@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"unicode/utf8"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -20,9 +19,10 @@ var (
 )
 
 type TTY struct {
-	fd      int
-	orig    *term.State
-	timeout time.Duration
+	fd              int
+	orig            *term.State
+	timeout         time.Duration
+	useConsoleInput bool
 }
 
 // NewTTY opens the terminal.
@@ -56,7 +56,9 @@ func NewTTY() (*TTY, error) {
 	// Enable Virtual Terminal Input if possible, to get arrow keys as sequences
 	handle := windows.Handle(fd)
 	var mode uint32
+	useConsoleInput := false
 	if err := windows.GetConsoleMode(handle, &mode); err == nil {
+		useConsoleInput = true
 		// ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
 		const EnableVirtualTerminalInput = 0x0200
 		if mode&EnableVirtualTerminalInput == 0 {
@@ -70,9 +72,10 @@ func NewTTY() (*TTY, error) {
 	}
 
 	return &TTY{
-		fd:      fd,
-		orig:    orig,
-		timeout: defaultTimeout,
+		fd:              fd,
+		orig:            orig,
+		timeout:         defaultTimeout,
+		useConsoleInput: useConsoleInput,
 	}, nil
 }
 
@@ -111,6 +114,10 @@ func (tty *TTY) Key() int {
 
 // asciiAndKeyCode processes input into an ASCII code or key code
 func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
+	if tty.useConsoleInput {
+		return asciiAndKeyCodeConsole(tty)
+	}
+
 	// On Windows, we just read bytes. The terminal should be in raw mode sending VT sequences.
 	// We use the same logic as Unix but with our read implementation.
 
@@ -149,10 +156,6 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 			keyCode = code
 			return
 		}
-		r, _ := utf8.DecodeRune(bytes[:numRead])
-		if r != utf8.RuneError {
-			ascii = int(r)
-		}
 	case numRead == 4:
 		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
 		if code, found := pageNavLookup[seq]; found {
@@ -165,13 +168,137 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 			keyCode = code
 			return
 		}
-	default:
-		r, _ := utf8.DecodeRune(bytes[:numRead])
-		if r != utf8.RuneError {
-			ascii = int(r)
-		}
 	}
 	return
+}
+
+func asciiAndKeyCodeConsole(tty *TTY) (ascii, keyCode int, err error) {
+	handle := windows.Handle(tty.fd)
+
+	waitMS := uint32(windows.INFINITE)
+	if tty.timeout > 0 {
+		waitMS = uint32(tty.timeout.Milliseconds())
+		if waitMS == 0 {
+			waitMS = 1
+		}
+	}
+
+	event, err := windows.WaitForSingleObject(handle, waitMS)
+	if err != nil {
+		return 0, 0, err
+	}
+	if event == uint32(windows.WAIT_TIMEOUT) {
+		return 0, 0, nil
+	}
+
+	for {
+		rec, n, readErr := readOneConsoleInputRecord(handle)
+		if readErr != nil {
+			return 0, 0, readErr
+		}
+		if n == 0 {
+			return 0, 0, nil
+		}
+
+		const keyEvent = 0x0001
+		if rec.EventType != keyEvent {
+			continue
+		}
+
+		ke := *(*KEY_EVENT_RECORD)(unsafe.Pointer(&rec.Event[0]))
+		if ke.bKeyDown == 0 {
+			continue
+		}
+
+		if ascii, keyCode = decodeConsoleKeyEvent(ke); ascii != 0 || keyCode != 0 {
+			return ascii, keyCode, nil
+		}
+	}
+}
+
+type KEY_EVENT_RECORD struct {
+	bKeyDown          int32
+	wRepeatCount      uint16
+	wVirtualKeyCode   uint16
+	wVirtualScanCode  uint16
+	uChar             [2]byte
+	dwControlKeyState uint32
+}
+
+type INPUT_RECORD struct {
+	EventType uint16
+	_         [2]byte // alignment padding
+	Event     [16]byte
+}
+
+func readOneConsoleInputRecord(handle windows.Handle) (INPUT_RECORD, uint32, error) {
+	modkernel32 := windows.NewLazySystemDLL("kernel32.dll")
+	procReadConsoleInputW := modkernel32.NewProc("ReadConsoleInputW")
+
+	var rec [1]INPUT_RECORD
+	var n uint32
+	r1, _, _ := procReadConsoleInputW.Call(
+		uintptr(handle),
+		uintptr(unsafe.Pointer(&rec[0])),
+		1,
+		uintptr(unsafe.Pointer(&n)),
+	)
+	if r1 == 0 {
+		return INPUT_RECORD{}, 0, errors.New("ReadConsoleInputW failed")
+	}
+	return rec[0], n, nil
+}
+
+func decodeConsoleKeyEvent(ke KEY_EVENT_RECORD) (ascii, keyCode int) {
+	vk := ke.wVirtualKeyCode
+
+	// Ignore modifier-only events.
+	if vk == 0x10 || vk == 0x11 || vk == 0x12 {
+		return 0, 0
+	}
+
+	// Decode arrows/home/end/page keys to package key codes.
+	switch vk {
+	case 0x26: // VK_UP
+		return 0, 253
+	case 0x28: // VK_DOWN
+		return 0, 255
+	case 0x27: // VK_RIGHT
+		return 0, 254
+	case 0x25: // VK_LEFT
+		return 0, 252
+	case 0x24: // VK_HOME
+		return 0, 1
+	case 0x23: // VK_END
+		return 0, 5
+	case 0x21: // VK_PRIOR / Page Up
+		return 0, 251
+	case 0x22: // VK_NEXT / Page Down
+		return 0, 250
+	}
+
+	const (
+		leftAltPressed   = 0x0002
+		rightAltPressed  = 0x0001
+		leftCtrlPressed  = 0x0008
+		rightCtrlPressed = 0x0004
+	)
+	ctrlPressed := ke.dwControlKeyState&(leftCtrlPressed|rightCtrlPressed) != 0
+	altPressed := ke.dwControlKeyState&(leftAltPressed|rightAltPressed) != 0
+
+	if ctrlPressed && !altPressed {
+		// Ctrl+A..Ctrl+Z => 1..26, including Ctrl+O => 15.
+		if vk >= 'A' && vk <= 'Z' {
+			return int(vk-'A') + 1, 0
+		}
+	}
+
+	r := rune(ke.uChar[0]) | rune(ke.uChar[1])<<8
+	if r != 0 {
+		return int(r), 0
+	}
+
+	return 0, 0
 }
 
 // readWithTimeout implements reading with timeout on Windows
@@ -314,15 +441,34 @@ func (tty *TTY) String() string {
 
 // Rune reads a rune
 func (tty *TTY) Rune() rune {
-	bytes := make([]byte, 6)
-	tty.SetTimeout(0)
-	numRead, err := tty.readWithTimeout(bytes)
-	if err != nil || numRead == 0 {
+	ascii, keyCode, err := asciiAndKeyCode(tty)
+	if err != nil {
 		return rune(0)
 	}
-	// Simplified logic
-	r, _ := utf8.DecodeRune(bytes[:numRead])
-	return r
+	if ascii != 0 {
+		return rune(ascii)
+	}
+	if keyCode != 0 {
+		switch keyCode {
+		case 253:
+			return '↑'
+		case 255:
+			return '↓'
+		case 254:
+			return '→'
+		case 252:
+			return '←'
+		case 1:
+			return '⇱'
+		case 5:
+			return '⇲'
+		case 251:
+			return '⇞'
+		case 250:
+			return '⇟'
+		}
+	}
+	return rune(0)
 }
 
 // RawMode switches the terminal to raw mode
@@ -390,10 +536,22 @@ func (tty *TTY) ReadString() (string, error) {
 func (tty *TTY) PrintRawBytes() {}
 
 // ASCII ...
-func (tty *TTY) ASCII() int { return 0 }
+func (tty *TTY) ASCII() int {
+	ascii, _, err := asciiAndKeyCode(tty)
+	if err != nil {
+		return 0
+	}
+	return ascii
+}
 
 // KeyCode ...
-func (tty *TTY) KeyCode() int { return 0 }
+func (tty *TTY) KeyCode() int {
+	_, keyCode, err := asciiAndKeyCode(tty)
+	if err != nil {
+		return 0
+	}
+	return keyCode
+}
 
 // WaitForKey ...
 func WaitForKey() {
