@@ -23,6 +23,9 @@ type TTY struct {
 	orig            *term.State
 	timeout         time.Duration
 	useConsoleInput bool
+	conin           *os.File
+	pending         []byte
+	escArmed        bool
 }
 
 // NewTTY opens the terminal.
@@ -31,14 +34,15 @@ type TTY struct {
 // but for now we assume a Windows Console API compatible environment or that term.MakeRaw works.
 func NewTTY() (*TTY, error) {
 	fd := int(os.Stdin.Fd())
-	if !term.IsTerminal(fd) {
-		// Fallback: try opening CONIN$
-		f, err := os.OpenFile("CONIN$", os.O_RDWR, 0)
-		if err == nil {
-			fd = int(f.Fd())
-		} else {
-			return nil, fmt.Errorf("stdin is not a terminal and CONIN$ could not be opened: %w", err)
-		}
+	var conin *os.File
+
+	// Prefer CONIN$ when available; this gives stable console KEY_EVENT behavior
+	// even when stdin is routed through an intermediate terminal/PTY layer.
+	if f, err := os.OpenFile("CONIN$", os.O_RDWR, 0); err == nil {
+		fd = int(f.Fd())
+		conin = f
+	} else if !term.IsTerminal(fd) {
+		return nil, fmt.Errorf("stdin is not a terminal and CONIN$ could not be opened: %w", err)
 	}
 
 	// We don't set raw mode here immediately, unlike unix version which does logic in NewTTY.
@@ -75,6 +79,7 @@ func NewTTY() (*TTY, error) {
 		orig:            orig,
 		timeout:         defaultTimeout,
 		useConsoleInput: useConsoleInput,
+		conin:           conin,
 	}, nil
 }
 
@@ -88,6 +93,10 @@ func (tty *TTY) SetTimeout(d time.Duration) {
 // Close restores the terminal
 func (tty *TTY) Close() {
 	tty.Restore()
+	if tty.conin != nil {
+		_ = tty.conin.Close()
+		tty.conin = nil
+	}
 }
 
 // Key reads the keycode or ASCII code
@@ -125,75 +134,72 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 	// Read with timeout
 	numRead, err := tty.readWithTimeout(bytes)
 
-	if err != nil || numRead == 0 {
+	if err != nil {
 		return 0, 0, err
 	}
 
-	// In byte-stream terminals, escape sequences may arrive split across reads.
-	// If we got a leading ESC, briefly gather any immediately following bytes.
-	if bytes[0] == 27 && numRead < len(bytes) {
-		numRead = tty.readEscapeContinuation(bytes, numRead)
+	if numRead > 0 {
+		tty.pending = append(tty.pending, bytes[:numRead]...)
 	}
 
-	// Handle multi-byte sequences (same lookup tables as key.go)
-	// We need to access the lookup tables from key.go.
-	// Since they are in the same package (vt), we can access them if they are exported or in same package.
-	// key.go is "!windows", so those variables might NOT be compiled in on Windows if they are defined in key.go!
-	// CHECK THIS: variables in key.go are inside `//go:build !windows && !plan9`.
-	// So they are NOT available here. We must duplicate them or move them to a common file.
-
-	// For now I will assume I need to duplicate them or move them.
-	// Moving them is cleaner. I should move them to `key_common.go`.
-
-	// Let's defer this check and assume I will fix it.
-
-	// ... logic duplicated from key.go ...
-
-	// Since I cannot access them yet, I'll put placeholders or move them in next step.
-	// I will just use the logic for now assuming I have the maps.
-
-	switch {
-	case numRead == 1:
-		ascii = int(bytes[0])
-	case numRead == 3:
-		seq := [3]byte{bytes[0], bytes[1], bytes[2]}
-		if code, found := keyCodeLookup[seq]; found {
-			keyCode = code
-			return
-		}
-	case numRead == 4:
-		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
-		if code, found := pageNavLookup[seq]; found {
-			keyCode = code
-			return
-		}
-	case numRead == 6:
-		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
-		if code, found := ctrlInsertLookup[seq]; found {
-			keyCode = code
-			return
-		}
+	if len(tty.pending) == 0 {
+		return 0, 0, nil
 	}
-	return
-}
 
-func (tty *TTY) readEscapeContinuation(buf []byte, n int) int {
-	if n >= len(buf) {
-		return n
-	}
-	origTimeout := tty.timeout
-	// Continuation window to complete split key sequences from PTY/pipe terminals.
-	tty.timeout = 30 * time.Millisecond
-	defer func() { tty.timeout = origTimeout }()
-
-	for n < len(buf) {
-		m, err := tty.readWithTimeout(buf[n : n+1])
-		if err != nil || m == 0 {
-			break
+	// Parse stateful pending input (important for Git Bash / PTY where ESC
+	// sequences often arrive split across reads).
+	switch tty.pending[0] {
+	case 27: // ESC prefix
+		if len(tty.pending) >= 3 {
+			seq3 := [3]byte{tty.pending[0], tty.pending[1], tty.pending[2]}
+			if code, found := keyCodeLookup[seq3]; found {
+				tty.pending = tty.pending[3:]
+				tty.escArmed = false
+				return 0, code, nil
+			}
 		}
-		n += m
+		if len(tty.pending) >= 4 {
+			seq4 := [4]byte{tty.pending[0], tty.pending[1], tty.pending[2], tty.pending[3]}
+			if code, found := pageNavLookup[seq4]; found {
+				tty.pending = tty.pending[4:]
+				tty.escArmed = false
+				return 0, code, nil
+			}
+		}
+		if len(tty.pending) >= 6 {
+			seq6 := [6]byte{tty.pending[0], tty.pending[1], tty.pending[2], tty.pending[3], tty.pending[4], tty.pending[5]}
+			if code, found := ctrlInsertLookup[seq6]; found {
+				tty.pending = tty.pending[6:]
+				tty.escArmed = false
+				return 0, code, nil
+			}
+		}
+
+		// If this looks like an in-progress CSI sequence, wait for more bytes.
+		if len(tty.pending) == 1 || (len(tty.pending) == 2 && tty.pending[1] == '[') {
+			// First idle poll after ESC: arm. Second idle poll: emit ESC.
+			if numRead == 0 {
+				if tty.escArmed {
+					tty.pending = tty.pending[1:]
+					tty.escArmed = false
+					return 27, 0, nil
+				}
+				tty.escArmed = true
+			}
+			return 0, 0, nil
+		}
+
+		// Unknown ESC-prefixed sequence: emit ESC and keep remaining bytes.
+		tty.pending = tty.pending[1:]
+		tty.escArmed = false
+		return 27, 0, nil
+
+	default:
+		ascii = int(tty.pending[0])
+		tty.pending = tty.pending[1:]
+		tty.escArmed = false
+		return ascii, 0, nil
 	}
-	return n
 }
 
 func asciiAndKeyCodeConsole(tty *TTY) (ascii, keyCode int, err error) {
