@@ -53,7 +53,9 @@ func NewTTY() (*TTY, error) {
 		return nil, err
 	}
 
-	// Enable Virtual Terminal Input if possible, to get arrow keys as sequences
+	// If this is a real console input handle, prefer native KEY_EVENT decoding.
+	// In that mode, VT input translation is counterproductive because arrows
+	// become ESC sequences (which can look like plain Escape presses).
 	handle := windows.Handle(fd)
 	var mode uint32
 	useConsoleInput := false
@@ -61,13 +63,10 @@ func NewTTY() (*TTY, error) {
 		useConsoleInput = true
 		// ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
 		const EnableVirtualTerminalInput = 0x0200
-		if mode&EnableVirtualTerminalInput == 0 {
-			windows.SetConsoleMode(handle, mode|EnableVirtualTerminalInput)
-			// Update the stored original state?
-			// term.MakeRaw returns the state *before* it touched it.
-			// If we modify it further, we should probably be careful.
-			// But Restore() uses the state from MakeRaw.
-			// If we changed mode manually after MakeRaw, Restore() might flip it back, which is good.
+		// Explicitly disable VT input for this reader so arrow/home/end/page keys
+		// are exposed as virtual key events instead of ESC-prefixed byte streams.
+		if mode&EnableVirtualTerminalInput != 0 {
+			_ = windows.SetConsoleMode(handle, mode&^EnableVirtualTerminalInput)
 		}
 	}
 
