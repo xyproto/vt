@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"time"
+	"unicode"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -28,59 +31,56 @@ type TTY struct {
 	escArmed        bool
 }
 
-// NewTTY opens the terminal.
-// On Windows, we try to use the file descriptor of os.Stdin.
-// If os.Stdin is a pipe (e.g. Mintty), this might fail or require special handling,
-// but for now we assume a Windows Console API compatible environment or that term.MakeRaw works.
+// NewTTY opens the terminal
 func NewTTY() (*TTY, error) {
 	fd := int(os.Stdin.Fd())
 	var conin *os.File
 
-	// Prefer CONIN$ when available; this gives stable console KEY_EVENT behavior
-	// even when stdin is routed through an intermediate terminal/PTY layer.
-	if f, err := os.OpenFile("CONIN$", os.O_RDWR, 0); err == nil {
-		fd = int(f.Fd())
-		conin = f
-	} else if !term.IsTerminal(fd) {
-		return nil, fmt.Errorf("stdin is not a terminal and CONIN$ could not be opened: %w", err)
-	}
-
+	// Detect console vs PTY first
 	handle := windows.Handle(fd)
 
 	// Check if this is a real console before setting raw mode
 	var mode uint32
-	useConsoleInput := windows.GetConsoleMode(handle, &mode) == nil
-
+	useConsoleInput := false
 	var orig *term.State
-	var err error
 
-	if useConsoleInput {
-		// For console input, set raw mode manually without VT input
-		// Save original mode
-		orig = &term.State{}
-		if state, err := term.GetState(fd); err == nil {
-			orig = state
+	if err := windows.GetConsoleMode(handle, &mode); err == nil {
+		// Real Windows console - prefer CONIN$ and use native KEY_EVENT decoding
+		if f, err := os.OpenFile("CONIN$", os.O_RDWR, 0); err == nil {
+			fd = int(f.Fd())
+			conin = f
 		}
 
-		// Flush any existing input before changing modes
-		windows.FlushConsoleInputBuffer(handle)
-
-		// Set raw mode: disable echo, line input, and processed input
-		// But do NOT enable VT input
-		const (
-			ENABLE_ECHO_INPUT      = 0x0004
-			ENABLE_LINE_INPUT      = 0x0002
-			ENABLE_PROCESSED_INPUT = 0x0001
-		)
-		mode &^= (ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT)
-		if err := windows.SetConsoleMode(handle, mode); err != nil {
-			return nil, err
-		}
-	} else {
-		// For PTY/Git Bash, use standard raw mode with VT sequences
+		useConsoleInput = true
+		var err error
 		orig, err = term.MakeRaw(fd)
 		if err != nil {
 			return nil, err
+		}
+
+		// Disable VT input for console mode
+		const EnableVirtualTerminalInput = 0x0200
+		if mode&EnableVirtualTerminalInput != 0 {
+			_ = windows.SetConsoleMode(handle, mode&^EnableVirtualTerminalInput)
+		}
+	} else {
+		// PTY mode (Git Bash) - open /dev/tty and use stty for raw mode
+		f, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+		if err != nil {
+			return nil, fmt.Errorf("PTY detected but /dev/tty not accessible: %w", err)
+		}
+		fd = int(f.Fd())
+		conin = f
+		orig = nil
+
+		// Use stty to set raw mode on /dev/tty
+		cmd := exec.Command("stty", "raw", "-echo", "-ixon", "min", "1", "time", "0")
+		cmd.Stdin = f
+		cmd.Stdout = f
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("stty failed: %w", err)
 		}
 	}
 
@@ -337,7 +337,6 @@ func decodeConsoleKeyEvent(ke KEY_EVENT_RECORD) (ascii, keyCode int) {
 	altPressed := ke.dwControlKeyState&(leftAltPressed|rightAltPressed) != 0
 
 	if ctrlPressed && !altPressed {
-		// Ctrl+A..Ctrl+Z => 1..26, including Ctrl+O => 15.
 		if vk >= 'A' && vk <= 'Z' {
 			return int(vk-'A') + 1, 0
 		}
@@ -353,27 +352,50 @@ func decodeConsoleKeyEvent(ke KEY_EVENT_RECORD) (ascii, keyCode int) {
 
 // readWithTimeout implements reading with timeout on Windows
 func (tty *TTY) readWithTimeout(b []byte) (int, error) {
-	// If timeout is 0, block.
-	// If timeout > 0, wait up to timeout.
+	if tty.useConsoleInput {
+		return tty.readWithTimeoutConsole(b)
+	}
+	return tty.readWithTimeoutPTY(b)
+}
 
+// readWithTimeoutPTY reads from PTY (Git Bash) - simple ReadFile
+func (tty *TTY) readWithTimeoutPTY(b []byte) (int, error) {
 	if tty.timeout <= 0 {
 		var n uint32
 		err := windows.ReadFile(windows.Handle(tty.fd), b, &n, nil)
 		return int(n), err
 	}
 
-	// Wait for input with timeout
 	handle := windows.Handle(tty.fd)
 	event, err := windows.WaitForSingleObject(handle, uint32(tty.timeout.Milliseconds()))
 	if err != nil {
 		return 0, err
 	}
 	if event == uint32(windows.WAIT_TIMEOUT) {
-		return 0, nil // Timeout
+		return 0, nil
 	}
 
-	// Loop until we find a key down event or timeout again (if we consumed everything)
-	// Since x/sys/windows doesn't expose InputRecord easily, we will use a simplified approach using syscall.
+	var n uint32
+	err = windows.ReadFile(handle, b, &n, nil)
+	return int(n), err
+}
+
+// readWithTimeoutConsole reads from Windows console with event filtering
+func (tty *TTY) readWithTimeoutConsole(b []byte) (int, error) {
+	if tty.timeout <= 0 {
+		var n uint32
+		err := windows.ReadFile(windows.Handle(tty.fd), b, &n, nil)
+		return int(n), err
+	}
+
+	handle := windows.Handle(tty.fd)
+	event, err := windows.WaitForSingleObject(handle, uint32(tty.timeout.Milliseconds()))
+	if err != nil {
+		return 0, err
+	}
+	if event == uint32(windows.WAIT_TIMEOUT) {
+		return 0, nil
+	}
 
 	type KEY_EVENT_RECORD struct {
 		bKeyDown          int32
@@ -383,10 +405,9 @@ func (tty *TTY) readWithTimeout(b []byte) (int, error) {
 		uChar             [2]byte
 		dwControlKeyState uint32
 	}
-	// InputRecord size is 20 bytes (2 + 2 padding + 16 union)
 	type INPUT_RECORD struct {
 		EventType uint16
-		_         [2]byte // padding
+		_         [2]byte
 		Event     [16]byte
 	}
 
@@ -395,7 +416,6 @@ func (tty *TTY) readWithTimeout(b []byte) (int, error) {
 	procReadConsoleInputW := modkernel32.NewProc("ReadConsoleInputW")
 
 	for {
-		// Peek at the number of events
 		var numEvents uint32
 		err = windows.GetNumberOfConsoleInputEvents(handle, &numEvents)
 		if err != nil {
@@ -405,13 +425,12 @@ func (tty *TTY) readWithTimeout(b []byte) (int, error) {
 			return 0, nil
 		}
 
-		// Peek 1 event
 		var events [1]INPUT_RECORD
 		var numRead uint32
 
 		r1, _, _ := procPeekConsoleInputW.Call(uintptr(handle), uintptr(unsafe.Pointer(&events[0])), 1, uintptr(unsafe.Pointer(&numRead)))
 		if r1 == 0 {
-			break // Error
+			break
 		}
 		if numRead == 0 {
 			return 0, nil
@@ -423,39 +442,32 @@ func (tty *TTY) readWithTimeout(b []byte) (int, error) {
 		const KEY_EVENT = 0x0001
 
 		if first.EventType == KEY_EVENT {
-			// Extract KeyEvent
 			ke := *(*KEY_EVENT_RECORD)(unsafe.Pointer(&first.Event[0]))
 
 			if ke.bKeyDown == 0 {
-				shouldConsume = true // Ignore key up
+				shouldConsume = true
 			} else {
-				// Key Down.
 				vk := ke.wVirtualKeyCode
-				if vk == 0x10 || vk == 0x11 || vk == 0x12 { // Shift, Ctrl, Alt
+				if vk == 0x10 || vk == 0x11 || vk == 0x12 {
 					if ke.uChar[0] == 0 && ke.uChar[1] == 0 {
 						shouldConsume = true
 					}
 				}
 			}
 		} else {
-			// Not a key event
 			shouldConsume = true
 		}
 
 		if shouldConsume {
-			// Remove it
 			var dummy [1]INPUT_RECORD
 			var n uint32
 			procReadConsoleInputW.Call(uintptr(handle), uintptr(unsafe.Pointer(&dummy[0])), 1, uintptr(unsafe.Pointer(&n)))
 			continue
 		}
 
-		// Good event found
 		break
 	}
-	// ...
 
-	// Input available
 	var n uint32
 	err = windows.ReadFile(handle, b, &n, nil)
 	return int(n), err
@@ -464,27 +476,38 @@ func (tty *TTY) readWithTimeout(b []byte) (int, error) {
 // String reads a string
 func (tty *TTY) String() string {
 	bytes := make([]byte, 6)
-	// Block until data
 	tty.SetTimeout(0)
 	numRead, err := tty.readWithTimeout(bytes)
 	if err != nil || numRead == 0 {
 		return ""
 	}
 
-	// Same logic as key.go
 	switch {
 	case numRead == 1:
 		r := rune(bytes[0])
-		return string(r) // Simplified: assume print if 1 byte
+		if unicode.IsPrint(r) {
+			return string(r)
+		}
+		return "c:" + strconv.Itoa(int(r))
 	case numRead == 3:
 		seq := [3]byte{bytes[0], bytes[1], bytes[2]}
 		if str, found := keyStringLookup[seq]; found {
 			return str
 		}
 		return string(bytes[:numRead])
-	// ... handling others ...
+	case numRead == 4:
+		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
+		if str, found := pageStringLookup[seq]; found {
+			return str
+		}
+		return string(bytes[:numRead])
+	case numRead == 6:
+		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
+		if str, found := ctrlInsertStringLookup[seq]; found {
+			return str
+		}
+		fallthrough
 	default:
-		// Read more?
 		return string(bytes[:numRead])
 	}
 }
@@ -524,22 +547,9 @@ func (tty *TTY) Rune() rune {
 // RawMode switches the terminal to raw mode
 func (tty *TTY) RawMode() {
 	if tty.useConsoleInput {
-		// For console input, just ensure raw mode is set without VT input
-		handle := windows.Handle(tty.fd)
-		var mode uint32
-		if err := windows.GetConsoleMode(handle, &mode); err == nil {
-			const (
-				ENABLE_ECHO_INPUT      = 0x0004
-				ENABLE_LINE_INPUT      = 0x0002
-				ENABLE_PROCESSED_INPUT = 0x0001
-			)
-			mode &^= (ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT)
-			windows.SetConsoleMode(handle, mode)
-		}
-	} else {
-		// For PTY/Git Bash, use standard raw mode with VT sequences
 		term.MakeRaw(tty.fd)
 	}
+	// For PTY mode, raw mode was already set in NewTTY
 }
 
 // NoBlock - Windows doesn't easily support non-blocking ReadFile without overlapped IO.
