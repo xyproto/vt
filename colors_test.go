@@ -25,7 +25,7 @@ func TestInts(t *testing.T) {
 		fmt.Println("length mismatch")
 		t.Fail()
 	}
-	for i := 0; i < len(ai); i++ {
+	for i := range ai {
 		if ai[i] != bi[i] {
 			fmt.Println("NO")
 			t.Fail()
