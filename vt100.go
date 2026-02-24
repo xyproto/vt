@@ -922,6 +922,28 @@ func (c *Canvas) HideCursorAndRedraw() {
 	c.HideCursorAndDraw()
 }
 
+// RedrawFull marks the whole canvas dirty and forces a full-frame redraw.
+func (c *Canvas) RedrawFull() {
+	c.mut.Lock()
+	for i := range c.chars {
+		c.chars[i].drawn = false
+	}
+	c.oldchars = nil
+	c.mut.Unlock()
+	c.Draw()
+}
+
+// HideCursorAndRedrawFull hides the cursor and forces a full-frame redraw.
+func (c *Canvas) HideCursorAndRedrawFull() {
+	c.mut.Lock()
+	for i := range c.chars {
+		c.chars[i].drawn = false
+	}
+	c.oldchars = nil
+	c.mut.Unlock()
+	c.HideCursorAndDraw()
+}
+
 // At returns the rune at the given coordinates, or an error if out of bounds
 func (c *Canvas) At(x, y uint) (rune, error) {
 	c.mut.RLock()
