@@ -124,6 +124,9 @@ func NewTTY() (*TTY, error) {
 // SetTimeout sets the read timeout by updating VMIN/VTIME.
 // It returns the previous timeout duration.
 func (tty *TTY) SetTimeout(d time.Duration) (time.Duration, error) {
+	if d == tty.timeout {
+		return d, nil
+	}
 	savedTimeout := tty.timeout
 	if err := tty.SetTimeoutNoSave(tty.timeout); err != nil {
 		return 0, err
