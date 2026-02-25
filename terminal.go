@@ -5,6 +5,8 @@ import (
 	"math/big"
 	"os"
 	"strings"
+
+	"github.com/xyproto/env/v2"
 )
 
 const (
@@ -85,14 +87,31 @@ func SetNoColor() {
 	fmt.Print(NoColor)
 }
 
+// UnderTMUX reports whether the process is running inside a TMUX session.
+var UnderTMUX = env.Has("TMUX")
+
+// UnderScreen reports whether the process is running inside a GNU Screen session.
+var UnderScreen = env.Has("STY")
+
+// UnderZellij reports whether the process is running inside a Zellij session.
+var UnderZellij = env.Has("ZELLIJ")
+
+// Multiplexed is true when running inside any known terminal multiplexer.
+var Multiplexed = UnderTMUX || UnderScreen || UnderZellij
+
 // Init initializes the terminal for full-screen canvas use.
+// Under TMUX and GNU Screen, the hard reset (\033c) and echo-off (\033[12h)
+// are skipped: multiplexers intercept \033c and reset their own pane state,
+// and mishandle \033[12h in ways that suppress visible output.
 func Init() {
 	initTerminal()
-	Reset()
+	if !Multiplexed {
+		Reset()   // \033c (RIS) upsets multiplexer pane state
+		EchoOff() // \033[12h is mishandled by multiplexers
+	}
 	Clear()
 	ShowCursor(false)
 	SetLineWrap(false)
-	EchoOff()
 }
 
 // Close restores the terminal to a usable interactive state.
