@@ -118,6 +118,11 @@ func Multiplexed() bool {
 	return multiplexed
 }
 
+// xtermLike returns true when $TERM looks like an xterm-class emulator
+func XtermLike() bool {
+	return xtermLike
+}
+
 // Init initializes the terminal for full-screen canvas use
 func Init() {
 	initTerminal()
