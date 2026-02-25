@@ -114,8 +114,19 @@ func Init() {
 	SetLineWrap(false)
 }
 
-// Close restores the terminal to a usable interactive state.
+// Close restores the terminal to a usable interactive state and clears the screen,
+// so that canvas content does not bleed into the shell session after exit.
+// Use CloseKeepContent to restore the terminal without clearing.
 func Close() {
+	SetLineWrap(true)
+	ShowCursor(true)
+	Clear()
+	Home()
+}
+
+// CloseKeepContent restores the terminal to a usable interactive state,
+// but leaves the canvas content visible on screen.
+func CloseKeepContent() {
 	SetLineWrap(true)
 	ShowCursor(true)
 	Home()

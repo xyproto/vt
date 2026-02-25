@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	defaultTimeout = 2 * time.Millisecond
+	defaultTimeout = 100 * time.Millisecond // VTIME resolution is 1 decisecond; anything less clamps to 100ms
 )
 
 type TTY struct {
@@ -128,7 +128,7 @@ func (tty *TTY) SetTimeout(d time.Duration) (time.Duration, error) {
 		return d, nil
 	}
 	savedTimeout := tty.timeout
-	if err := tty.SetTimeoutNoSave(tty.timeout); err != nil {
+	if err := tty.SetTimeoutNoSave(d); err != nil {
 		return 0, err
 	}
 	tty.timeout = d
@@ -156,10 +156,13 @@ func (tty *TTY) Close() {
 func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 	bytes := make([]byte, 6)
 
-	// Set raw mode, cbreak, and timeout before each read
+	// Set raw mode, cbreak, and timeout before each read.
+	// NoBlock() sets VMIN=1/VTIME=0 (blocking); SetTimeoutNoSave applies the
+	// actual timeout afterwards. SetTimeoutNoSave is used directly to avoid the
+	// no-op early-return in SetTimeout when d == tty.timeout.
 	tty.RawMode()
 	tty.NoBlock()
-	tty.SetTimeout(tty.timeout)
+	tty.SetTimeoutNoSave(tty.timeout)
 
 	// Read bytes from the terminal
 	numRead, err := unix.Read(tty.fd, bytes)
