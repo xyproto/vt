@@ -135,7 +135,8 @@ func (tty *TTY) SetTimeout(d time.Duration) (time.Duration, error) {
 	return savedTimeout, nil
 }
 
-// SetTimeout sets the read timeout by updating VMIN/VTIME.
+// SetTimeoutNoSave sets the read timeout by updating VMIN/VTIME.
+// Unlike SetTimeout, it does not save the previous timeout.
 func (tty *TTY) SetTimeoutNoSave(d time.Duration) error {
 	a, err := tcgetattr(tty.fd)
 	if err != nil {
@@ -403,7 +404,9 @@ func (tty *TTY) WriteString(s string) error {
 	return nil
 }
 
-// ReadString reads all available data from the TTY
+// ReadString reads all available data from the TTY.
+// Note: this changes the read timeout to 100ms and does not restore it.
+// Use ReadStringKeepTiming if the caller's timeout must be preserved.
 func (tty *TTY) ReadString() (string, error) {
 	var result []byte
 	buf := make([]byte, 128)

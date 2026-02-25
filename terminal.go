@@ -88,26 +88,43 @@ func SetNoColor() {
 }
 
 // UnderTMUX reports whether the process is running inside a TMUX session.
-var UnderTMUX = env.Has("TMUX")
+var underTMUX = env.Has("TMUX")
 
 // UnderScreen reports whether the process is running inside a GNU Screen session.
-var UnderScreen = env.Has("STY")
+var underScreen = env.Has("STY")
 
 // UnderZellij reports whether the process is running inside a Zellij session.
-var UnderZellij = env.Has("ZELLIJ")
+var underZellij = env.Has("ZELLIJ")
 
 // Multiplexed is true when running inside any known terminal multiplexer.
-var Multiplexed = UnderTMUX || UnderScreen || UnderZellij
+var multiplexed = underTMUX || underScreen || underZellij
+
+// xtermLike reports whether $TERM looks like an xterm-class emulator
+// (xterm, xterm-256color, xterm-color, etc.) where \033c and \033[12h are
+// safe and well understood.
+var xtermLike = strings.HasPrefix(env.Str("TERM"), "xterm")
+
+// safeReset is true when it is safe to emit \033c (RIS) and \033[12h (SRM).
+// These are skipped on:
+//   - terminal multiplexers (TMUX, GNU Screen) which intercept \033c and
+//     mishandle \033[12h;
+//   - the Linux console (TERM=linux) where \033c resets the console font
+//     and character set, and \033[12h disables local echo persistently;
+//   - other non-xterm consoles (wscons, etc.) where the behaviour is
+//     undefined or unnecessarily destructive.
+var safeReset = xtermLike && !multiplexed
+
+// Multiplexed returns true when running inside any known terminal multiplexer.
+func Multiplexed() bool {
+	return multiplexed
+}
 
 // Init initializes the terminal for full-screen canvas use.
-// Under TMUX and GNU Screen, the hard reset (\033c) and echo-off (\033[12h)
-// are skipped: multiplexers intercept \033c and reset their own pane state,
-// and mishandle \033[12h in ways that suppress visible output.
 func Init() {
 	initTerminal()
-	if !Multiplexed {
-		Reset()   // \033c (RIS) upsets multiplexer pane state
-		EchoOff() // \033[12h is mishandled by multiplexers
+	if safeReset {
+		Reset()   // \033c (RIS): only safe on xterm-class terminals outside multiplexers
+		EchoOff() // \033[12h (SRM): ditto
 	}
 	Clear()
 	ShowCursor(false)

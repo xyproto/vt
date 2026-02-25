@@ -59,7 +59,7 @@ func NewCanvas() *Canvas {
 	c.cursorVisible = false
 	c.termCursorVisible = true // assume visible so flushCursor emits the hide escape
 	c.lineWrap = false
-	c.runewise = Multiplexed // use explicit cursor positioning under multiplexers to avoid line-wrap issues
+	c.runewise = multiplexed // use explicit cursor positioning under multiplexers to avoid line-wrap issues
 	c.flushCursor()
 	c.SetLineWrap(c.lineWrap)
 	return c
