@@ -141,7 +141,7 @@ func Menu(title, titleColor string, choices []string, selectionDelay time.Durati
 			// Select the item that starts with this letter, if possible. Try the first, then the second, etc, up to 5
 			keymap := make(map[rune]int)
 			for index, choice := range choices {
-				for pos := 0; pos < 5; pos++ {
+				for pos := range 5 {
 					letter, err := getLetter(choice, pos)
 					if err == nil {
 						_, exists := keymap[letter]

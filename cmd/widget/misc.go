@@ -31,7 +31,7 @@ func filterS(sl []string, f func(string) bool) []string {
 // Returns an empty string if memory can not be allocated within append.
 func RepeatRune(r rune, n uint) string {
 	var sb strings.Builder
-	for i := uint(0); i < n; i++ {
+	for range n {
 		_, err := sb.WriteRune(r)
 		if err != nil {
 			// In the unlikely event that append inside WriteRune won't work
@@ -44,7 +44,7 @@ func RepeatRune(r rune, n uint) string {
 // Repeat a rune, n number of times
 func RepeatRune2(r rune, n uint) (string, error) {
 	var sb strings.Builder
-	for i := uint(0); i < n; i++ {
+	for range n {
 		_, err := sb.WriteRune(r)
 		if err != nil {
 			// In the unlikely event that append inside WriteRune won't work
