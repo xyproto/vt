@@ -25,8 +25,11 @@ func (tty *TTY) KeyString() string {
 		n = 0
 	}
 
-	// Restore the timeout without flushing pending input
-	defer tty.SetTimeout(savedTimeout)
+	// Restore terminal state and timeout without flushing pending input
+	defer func() {
+		tty.RestoreNoFlush()
+		tty.SetTimeout(savedTimeout)
+	}()
 
 	if err != nil || n == 0 {
 		return ""
