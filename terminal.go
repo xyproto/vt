@@ -35,12 +35,12 @@ const (
 	attributeTemplate  = "\033[%sm"
 )
 
-// NoColor is the escape sequence for resetting all terminal color attributes.
+// NoColor is the escape sequence for resetting all color attributes
 const NoColor string = "\033[0m"
 
 var maybeNoColor *string
 
-// Stop returns the escape sequence string for resetting all color attributes.
+// Stop returns the escape sequence for resetting all color attributes
 func Stop() string {
 	if maybeNoColor != nil {
 		return *maybeNoColor
@@ -50,7 +50,7 @@ func Stop() string {
 	return s
 }
 
-// writeAllToStdout writes the complete byte slice to stdout, retrying on partial writes.
+// writeAllToStdout writes the given byte slice to stdout, retrying on partial writes
 func writeAllToStdout(data []byte) bool {
 	for len(data) > 0 {
 		n, err := os.Stdout.Write(data)
@@ -62,64 +62,63 @@ func writeAllToStdout(data []byte) bool {
 	return true
 }
 
-// SetXY moves the cursor to the given position (0,0 is top-left).
+// SetXY moves the cursor to the given position (0,0 is top left)
 func SetXY(x, y uint) {
 	fmt.Printf(cursorHomeTemplate, y+1, x+1)
 }
 
-// Home moves the cursor to the home position (top-left corner).
+// Home moves the cursor to the top-left corner
 func Home() {
 	fmt.Print(cursorHome)
 }
 
-// Reset sends the terminal reset sequence.
+// Reset sends the terminal reset sequence
 func Reset() {
 	fmt.Print(resetDevice)
 }
 
-// Clear erases the entire screen.
+// Clear erases the entire screen
 func Clear() {
 	fmt.Print(eraseScreen)
 }
 
-// SetNoColor resets all terminal color attributes.
+// SetNoColor resets all color attributes
 func SetNoColor() {
 	fmt.Print(NoColor)
 }
 
-// UnderTMUX reports whether the process is running inside a TMUX session.
+// underTMUX is true if running inside TMUX
 var underTMUX = env.Has("TMUX")
 
-// UnderScreen reports whether the process is running inside a GNU Screen session.
+// underScreen is true if running inside GNU Screen
 var underScreen = env.Has("STY")
 
-// UnderZellij reports whether the process is running inside a Zellij session.
+// underZellij is true if running inside Zellij
 var underZellij = env.Has("ZELLIJ")
 
-// Multiplexed is true when running inside any known terminal multiplexer.
-var multiplexed = underTMUX || underScreen || underZellij
+// underDvtm is true if running inside dvtm
+var underDvtm = env.Has("DVTM")
 
-// xtermLike reports whether $TERM looks like an xterm-class emulator
-// (xterm, xterm-256color, xterm-color, etc.) where \033c and \033[12h are
-// safe and well understood.
+// underAbduco is true if running inside abduco
+var underAbduco = env.Has("ABDUCO")
+
+// multiplexed is true when running inside any known terminal multiplexer
+var multiplexed = underTMUX || underScreen || underZellij || underDvtm || underAbduco
+
+// xtermLike is true when $TERM looks like an xterm-class emulator
 var xtermLike = strings.HasPrefix(env.Str("TERM"), "xterm")
 
-// safeReset is true when it is safe to emit \033c (RIS) and \033[12h (SRM).
-// These are skipped on:
-//   - terminal multiplexers (TMUX, GNU Screen) which intercept \033c and
-//     mishandle \033[12h;
-//   - the Linux console (TERM=linux) where \033c resets the console font
-//     and character set, and \033[12h disables local echo persistently;
-//   - other non-xterm consoles (wscons, etc.) where the behaviour is
-//     undefined or unnecessarily destructive.
+// safeReset is true when it is safe to send \033c (RIS) and \033[12h (SRM).
+// These are skipped under multiplexers, on the Linux console, and on
+// non-xterm consoles where the behaviour is undefined or destructive.
 var safeReset = xtermLike && !multiplexed
 
-// Multiplexed returns true when running inside any known terminal multiplexer.
+// Multiplexed returns true when running inside a terminal multiplexer
 func Multiplexed() bool {
 	return multiplexed
 }
 
-// Init initializes the terminal for full-screen canvas use.
+// Init initializes the terminal for full-screen canvas use
 func Init() {
 	initTerminal()
 	if safeReset {
@@ -131,9 +130,8 @@ func Init() {
 	SetLineWrap(false)
 }
 
-// Close restores the terminal to a usable interactive state and clears the screen,
-// so that canvas content does not bleed into the shell session after exit.
-// Use CloseKeepContent to restore the terminal without clearing.
+// Close restores the terminal and clears the screen.
+// Use CloseKeepContent to keep the canvas content visible.
 func Close() {
 	SetLineWrap(true)
 	ShowCursor(true)
@@ -141,22 +139,21 @@ func Close() {
 	Home()
 }
 
-// CloseKeepContent restores the terminal to a usable interactive state,
-// but leaves the canvas content visible on screen.
+// CloseKeepContent restores the terminal but leaves the canvas content visible
 func CloseKeepContent() {
 	SetLineWrap(true)
 	ShowCursor(true)
 	Home()
 }
 
-// EchoOff disables terminal echo, if the platform supports it.
+// EchoOff disables terminal echo
 func EchoOff() {
 	if echoOffHelper() {
 		fmt.Print(echoOff)
 	}
 }
 
-// SetLineWrap enables or disables terminal line-wrapping.
+// SetLineWrap enables or disables line wrapping
 func SetLineWrap(enable bool) {
 	if enable {
 		fmt.Print(enableLineWrap)
@@ -165,7 +162,7 @@ func SetLineWrap(enable bool) {
 	}
 }
 
-// ShowCursor shows or hides the terminal cursor.
+// ShowCursor shows or hides the terminal cursor
 func ShowCursor(enable bool) {
 	showCursorHelper(enable)
 	if enable {
@@ -175,7 +172,7 @@ func ShowCursor(enable bool) {
 	}
 }
 
-// GetBackgroundColor queries the terminal emulator for its background color.
+// GetBackgroundColor queries the terminal for its background color.
 // Returns normalized RGB values in [0.0, 1.0], or an error.
 func GetBackgroundColor(tty *TTY) (float64, float64, float64, error) {
 	// First try the escape code used by ie. alacritty

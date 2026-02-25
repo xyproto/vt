@@ -35,8 +35,8 @@ func clamp(v, lo, hi int64) int64 {
 	return v
 }
 
-// timeoutVals converts d into VMIN and VTIME values, matching the old pkg/term behavior.
-// VTIME is in deciseconds (1/10th of a second), so durations under 100ms clamp to 100ms.
+// timeoutVals converts d into VMIN and VTIME values.
+// VTIME is in deciseconds (1/10th of a second).
 // A zero or negative duration means block indefinitely (VMIN=1, VTIME=0).
 func timeoutVals(d time.Duration) (uint8, uint8) {
 	if d > 0 {
@@ -121,8 +121,8 @@ func NewTTY() (*TTY, error) {
 	return &TTY{fd: fd, orig: orig, timeout: defaultTimeout}, nil
 }
 
-// SetTimeout sets the read timeout by updating VMIN/VTIME.
-// It returns the previous timeout duration.
+// SetTimeout sets the read timeout.
+// Returns the previous timeout.
 func (tty *TTY) SetTimeout(d time.Duration) (time.Duration, error) {
 	if d == tty.timeout {
 		return d, nil
@@ -135,8 +135,7 @@ func (tty *TTY) SetTimeout(d time.Duration) (time.Duration, error) {
 	return savedTimeout, nil
 }
 
-// SetTimeoutNoSave sets the read timeout by updating VMIN/VTIME.
-// Unlike SetTimeout, it does not save the previous timeout.
+// SetTimeoutNoSave sets the read timeout without saving the previous value
 func (tty *TTY) SetTimeoutNoSave(d time.Duration) error {
 	a, err := tcgetattr(tty.fd)
 	if err != nil {
@@ -153,14 +152,11 @@ func (tty *TTY) Close() {
 	unix.Close(tty.fd)
 }
 
-// asciiAndKeyCode processes input into an ASCII code or key code
+// asciiAndKeyCode processes input into an ASCII or key code
 func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 	bytes := make([]byte, 6)
 
-	// Set raw mode, cbreak, and timeout before each read.
-	// NoBlock() sets VMIN=1/VTIME=0 (blocking); SetTimeoutNoSave applies the
-	// actual timeout afterwards. SetTimeoutNoSave is used directly to avoid the
-	// no-op early-return in SetTimeout when d == tty.timeout.
+	// Set raw mode, cbreak, and timeout before each read
 	tty.RawMode()
 	tty.NoBlock()
 	tty.SetTimeoutNoSave(tty.timeout)
@@ -404,9 +400,7 @@ func (tty *TTY) WriteString(s string) error {
 	return nil
 }
 
-// ReadString reads all available data from the TTY.
-// Note: this changes the read timeout to 100ms and does not restore it.
-// Use ReadStringKeepTiming if the caller's timeout must be preserved.
+// ReadString reads all available data from the TTY
 func (tty *TTY) ReadString() (string, error) {
 	var result []byte
 	buf := make([]byte, 128)
@@ -436,8 +430,8 @@ func (tty *TTY) ReadString() (string, error) {
 	return string(result), nil
 }
 
-// ReadStringKeepTiming reads all available data from the TTY while preserving
-// the caller's timeout value.
+// ReadStringKeepTiming reads all available data from the TTY,
+// preserving the caller's timeout value
 func (tty *TTY) ReadStringKeepTiming() (string, error) {
 	var result []byte
 	buf := make([]byte, 128)
