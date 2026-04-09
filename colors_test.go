@@ -98,3 +98,29 @@ func BenchmarkInts(b *testing.B) {
 		ac.Ints()
 	}
 }
+
+func TestNearestANSI16(t *testing.T) {
+	tests := []struct {
+		hex      string
+		expected AttributeColor
+	}{
+		{"#af0005", Red},        // dark red → Red
+		{"#ff0000", LightRed},   // bright red → LightRed
+		{"#00ff00", LightGreen}, // bright green → LightGreen
+		{"#000000", Black},      // black → Black
+		{"#ffffff", White},      // white → White
+		{"#00aaff", Cyan},       // sky blue (0,170,255) → Cyan (0,205,205) is nearest
+		{"#888888", DarkGray},   // mid gray → DarkGray
+	}
+	for _, tt := range tests {
+		r, g, b, err := parseHexColor(tt.hex)
+		if err != nil {
+			t.Errorf("parseHexColor(%q) error: %v", tt.hex, err)
+			continue
+		}
+		got := nearestANSI16(r, g, b)
+		if got != tt.expected {
+			t.Errorf("nearestANSI16 for %s: got %v, want %v", tt.hex, got, tt.expected)
+		}
+	}
+}

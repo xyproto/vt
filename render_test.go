@@ -39,7 +39,7 @@ func TestToImage(t *testing.T) {
 	// Check if the pixel at the specified character position has the expected color
 	// Adjusting pixel position to account for character dimensions
 	pixelX, pixelY := x*charWidth, y*charHeight
-	expectedColor := ansiCodeToColor(Red, true) // Red
+	expectedColor := ansiCodeToColor(Red)
 	actualColor := img.At(pixelX, pixelY)
 	if !colorsAreEqual(expectedColor, actualColor) {
 		t.Errorf("Pixel color at (%d, %d) is incorrect. Got %v, want %v", pixelX, pixelY, actualColor, expectedColor)
