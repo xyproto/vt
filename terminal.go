@@ -40,16 +40,10 @@ const (
 // NoColor is the escape sequence for resetting all color attributes
 const NoColor string = "\033[0m"
 
-var maybeNoColor *string
-
-// Stop returns the escape sequence for resetting all color attributes
+// Stop returns the escape sequence for resetting all color attributes,
+// or "" when NO_COLOR is set.
 func Stop() string {
-	if maybeNoColor != nil {
-		return *maybeNoColor
-	}
-	s := NoColor
-	maybeNoColor = &s
-	return s
+	return envResetSeq
 }
 
 // writeAllToStdout writes the given byte slice to stdout, retrying on partial writes

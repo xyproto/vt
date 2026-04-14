@@ -161,9 +161,9 @@ func (c *Canvas) PlotAll() {
 			}
 			SetXY(uint(x), y)
 			if uint32(cr.fg) < 256 && uint32(cr.bg) < 256 {
-				fmt.Print(cr.fg.Combine(cr.bg).String() + string(r) + NoColor)
+				fmt.Print(cr.fg.Combine(cr.bg).String() + string(r) + envResetSeq)
 			} else {
-				fmt.Print(cr.fg.String() + cr.bg.String() + string(r) + NoColor)
+				fmt.Print(cr.fg.String() + cr.bg.String() + string(r) + envResetSeq)
 			}
 		}
 	}
