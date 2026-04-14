@@ -152,7 +152,11 @@ func (c *Canvas) PlotAll() {
 				r = ' '
 			}
 			SetXY(uint(x), y)
-			fmt.Print(cr.fg.Combine(cr.bg).String() + string(r) + NoColor)
+			if uint32(cr.fg) < 256 && uint32(cr.bg) < 256 {
+				fmt.Print(cr.fg.Combine(cr.bg).String() + string(r) + NoColor)
+			} else {
+				fmt.Print(cr.fg.String() + cr.bg.String() + string(r) + NoColor)
+			}
 		}
 	}
 	c.mut.Unlock()
@@ -327,7 +331,11 @@ func (c *Canvas) draw(permanentlyHideCursor bool) {
 					r = ' '
 				}
 				fmt.Fprintf(&sb, "\033[%d;%dH", y+1, x+1)
-				sb.WriteString(cr.fg.Combine(cr.bg).String())
+				if uint32(cr.fg) < 256 && uint32(cr.bg) < 256 {
+					sb.WriteString(cr.fg.Combine(cr.bg).String())
+				} else {
+					sb.WriteString(cr.fg.String() + cr.bg.String())
+				}
 				sb.WriteRune(r)
 			}
 		}
@@ -372,7 +380,11 @@ func (c *Canvas) draw(permanentlyHideCursor bool) {
 					continue
 				}
 				if x == 0 || !lastfg.Equal(cr.fg) || !lastbg.Equal(cr.bg) {
-					sb.WriteString(cr.fg.Combine(cr.bg).String())
+					if uint32(cr.fg) < 256 && uint32(cr.bg) < 256 {
+						sb.WriteString(cr.fg.Combine(cr.bg).String())
+					} else {
+						sb.WriteString(cr.fg.String() + cr.bg.String())
+					}
 				}
 				if cr.r != 0 {
 					sb.WriteRune(cr.r)
