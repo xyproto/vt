@@ -100,6 +100,7 @@ var DarkColorMap = map[string]AttributeColor{
 	"lightmagenta": LightMagenta,
 	"lightcyan":    LightCyan,
 	"lightgray":    LightGray,
+	"steelblue":    Color256(110),
 }
 
 // LightColorMap maps color names to AttributeColor values for light terminals
@@ -128,6 +129,7 @@ var LightColorMap = map[string]AttributeColor{
 	"darkmagenta":  Magenta,
 	"darkcyan":     Cyan,
 	"darkgray":     DarkGray,
+	"steelblue":    Color256(110),
 }
 
 // ansiEscapes holds the pre-computed VT100 escape sequence for every standard
