@@ -7,6 +7,14 @@ import (
 	"sync"
 )
 
+// umin returns the smaller of two uint values
+func umin(a, b uint) uint {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // ColorRune holds a single terminal cell
 type ColorRune struct {
 	fg    AttributeColor
@@ -477,6 +485,15 @@ func (c *Canvas) HideCursorAndRedrawFull() {
 	c.oldchars = nil
 	c.mut.Unlock()
 	c.draw(true)
+}
+
+// WriteTagged writes a tagged string ("<green>hello</green>") to the canvas
+func (c *Canvas) WriteTagged(x, y uint, bgColor AttributeColor, tagged string) {
+	pcc := make([]CharAttribute, len([]rune(tagged)))
+	n := New().ExtractToSlice(tagged, &pcc)
+	for i := range n {
+		c.WriteRune(i+x, y, pcc[i].A, bgColor, pcc[i].R)
+	}
 }
 
 // At returns the rune at the given coordinates, or an error if out of bounds
