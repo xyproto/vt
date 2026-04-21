@@ -13,7 +13,7 @@ func main() {
 		panic(err)
 	}
 	for {
-		key := tty.String()
+		key := tty.ReadKey()
 		if key != "" {
 			fmt.Print(key + "\r\n")
 		}
