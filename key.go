@@ -159,6 +159,22 @@ func (tty *TTY) Close() {
 	unix.Close(tty.fd)
 }
 
+// HasPendingInput reports whether ReadKey would return another key without
+// having to wait — either bytes are already buffered inside the TTY or more
+// bytes are readable from the file descriptor right now. Useful for frame
+// skipping: if more input is pending, the current frame can be dropped in
+// favour of the next one.
+func (tty *TTY) HasPendingInput() bool {
+	if len(tty.pending) > 0 {
+		return true
+	}
+	ok, err := tty.Poll(0)
+	if err != nil {
+		return false
+	}
+	return ok
+}
+
 // Poll checks if there is data available to read from the TTY within the given timeout.
 // Returns true if data is available, false if the timeout was reached.
 func (tty *TTY) Poll(d time.Duration) (bool, error) {
