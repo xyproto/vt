@@ -417,7 +417,14 @@ func (tty *TTY) ReadKey() string {
 		return key
 	}
 	// Still nothing parseable (shouldn't normally happen); flush the pending
-	// bytes as-is so we don't deadlock on them.
+	// bytes as-is so we don't deadlock on them. A lone ESC byte that never
+	// got a continuation is the Escape key itself — return it as "c:27" so
+	// callers that compare against the canonical key string (e.g. menu
+	// dismissal) continue to work.
+	if len(tty.pending) == 1 && tty.pending[0] == 27 {
+		tty.pending = tty.pending[:0]
+		return "c:27"
+	}
 	s := string(tty.pending)
 	tty.pending = tty.pending[:0]
 	return s
