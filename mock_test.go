@@ -10,7 +10,7 @@ import (
 func TestNewTTYFromReader_ReadsPrintableKeys(t *testing.T) {
 	tty := NewTTYFromReader(strings.NewReader("abc"))
 	var got []string
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		k := tty.ReadKey()
 		if k == "" {
 			t.Fatalf("ReadKey returned empty at i=%d", i)
