@@ -371,7 +371,7 @@ func parseFirstKey(buf []byte) (string, int) {
 		// pressed them together — a real Escape would have been consumed
 		// before the next key arrived — so treat the pair as a single key.
 		if buf[1] == 0x0D || buf[1] == 0x0A {
-			return KeyAltReturnString, 2
+			return "alt⏎", 2
 		}
 		return "c:27", 1
 	}

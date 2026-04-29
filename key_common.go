@@ -56,12 +56,6 @@ const (
 	KeyShiftReturn   = 298 // Shift-Return / Shift-Enter (only reported when the terminal supports the kitty keyboard protocol or xterm modifyOtherKeys=2)
 )
 
-// String tokens emitted by parseFirstKey for Alt/Shift-Return.
-const (
-	KeyAltReturnString   = "alt⏎"
-	KeyShiftReturnString = "shift⏎"
-)
-
 // Terminal sequences that ask the terminal to start, and stop, reporting
 // modified Return / Enter and similar key combinations. Writing these is
 // harmless on terminals that don't understand them — the bytes are silently
@@ -212,8 +206,8 @@ var modKeyStringLookup = map[[6]byte]string{
 
 // String representations for long CSI sequences (kitty keyboard protocol and xterm modifyOtherKeys=2)
 var longCSILookup = map[string]string{
-	"\x1b[13;2u":    KeyShiftReturnString, // Shift-Return (kitty CSI-u)
-	"\x1b[13;3u":    KeyAltReturnString,   // Alt-Return   (kitty CSI-u)
-	"\x1b[27;2;13~": KeyShiftReturnString, // Shift-Return (xterm modifyOtherKeys=2)
-	"\x1b[27;3;13~": KeyAltReturnString,   // Alt-Return   (xterm modifyOtherKeys=2)
+	"\x1b[13;2u":    "shift⏎", // Shift-Return (kitty CSI-u)
+	"\x1b[13;3u":    "alt⏎",   // Alt-Return   (kitty CSI-u)
+	"\x1b[27;2;13~": "shift⏎", // Shift-Return (xterm modifyOtherKeys=2)
+	"\x1b[27;3;13~": "alt⏎",   // Alt-Return   (xterm modifyOtherKeys=2)
 }
