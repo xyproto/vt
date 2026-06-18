@@ -89,18 +89,31 @@ func cfmakecbreak(attr *unix.Termios) {
 	attr.Cc[unix.VTIME] = 0
 }
 
-// tcgetattr gets the current terminal attributes
+// tcgetattr gets the current terminal attributes.
+// Interrupted (EINTR) ioctls are retried, since a busy machine can deliver
+// signals (SIGWINCH, SIGCHLD, ...) often enough to abort the call repeatedly.
 func tcgetattr(fd int) (unix.Termios, error) {
-	t, err := unix.IoctlGetTermios(fd, ioctlGETATTR)
-	if err != nil {
-		return unix.Termios{}, err
+	for {
+		t, err := unix.IoctlGetTermios(fd, ioctlGETATTR)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return unix.Termios{}, err
+		}
+		return *t, nil
 	}
-	return *t, nil
 }
 
-// tcsetattr sets the terminal attributes
+// tcsetattr sets the terminal attributes, retrying on EINTR (see tcgetattr)
 func tcsetattr(fd int, attr *unix.Termios) error {
-	return unix.IoctlSetTermios(fd, ioctlSETATTR, attr)
+	for {
+		err := unix.IoctlSetTermios(fd, ioctlSETATTR, attr)
+		if err == unix.EINTR {
+			continue
+		}
+		return err
+	}
 }
 
 // NewTTY opens /dev/tty in raw+cbreak mode with a read timeout
@@ -246,6 +259,15 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 	tty.NoBlock()
 	tty.SetTimeoutNoSave(tty.timeout)
 
+	// Keep the terminal in raw mode between reads and only flush the input
+	// queue on the way out. Restoring the original (cooked) mode here would
+	// re-enable echo and line buffering in the gap before the next read, so a
+	// key pressed while the caller is busy would be echoed as a raw escape
+	// sequence (e.g. "^[[A") and swallowed until Return — very visible when a
+	// loaded machine widens that gap. The TTY owner restores the original mode
+	// on exit (see Loop's deferred Restore and Close).
+	defer tty.Flush()
+
 	// Read bytes from the terminal
 	numRead, err := tty.readBytes(bytes)
 	if numRead < 0 {
@@ -253,14 +275,10 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 	}
 
 	if err != nil {
-		tty.Restore()
-		tty.Flush()
 		return
 	}
 
 	if numRead == 0 {
-		tty.Restore()
-		tty.Flush()
 		return
 	}
 
@@ -272,8 +290,6 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 		seq := [3]byte{bytes[0], bytes[1], bytes[2]}
 		if code, found := keyCodeLookup[seq]; found {
 			keyCode = code
-			tty.Restore()
-			tty.Flush()
 			return
 		}
 		r, _ := utf8.DecodeRune(bytes[:numRead])
@@ -284,24 +300,18 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 		seq := [4]byte{bytes[0], bytes[1], bytes[2], bytes[3]}
 		if code, found := pageNavLookup[seq]; found {
 			keyCode = code
-			tty.Restore()
-			tty.Flush()
 			return
 		}
 	case numRead == 5:
 		seq := [5]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]}
 		if code, found := fKeyLookup[seq]; found {
 			keyCode = code
-			tty.Restore()
-			tty.Flush()
 			return
 		}
 	case numRead == 6:
 		seq := [6]byte{bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]}
 		if code, found := modKeyLookup[seq]; found {
 			keyCode = code
-			tty.Restore()
-			tty.Flush()
 			return
 		}
 	default:
@@ -311,8 +321,6 @@ func asciiAndKeyCode(tty *TTY) (ascii, keyCode int, err error) {
 		}
 	}
 
-	tty.Restore()
-	tty.Flush()
 	return
 }
 
@@ -513,8 +521,11 @@ func (tty *TTY) Rune() rune {
 	if numRead < 0 {
 		numRead = 0
 	}
-	tty.Restore()
-	tty.Flush()
+
+	// Stay in raw mode between reads and only flush the input queue, so a key
+	// pressed while the caller is busy is not echoed as a raw escape sequence.
+	// The TTY owner restores the original mode on exit.
+	defer tty.Flush()
 
 	if err != nil || numRead == 0 {
 		return rune(0)
@@ -583,12 +594,15 @@ func (tty *TTY) NoBlock() {
 	tcsetattr(tty.fd, &a)
 }
 
-// Restore the terminal to its original state (flushes pending input)
+// Restore the terminal to its original state (flushes pending input).
+// Interrupted (EINTR) ioctls are retried so a busy machine can't leave the
+// terminal stuck in raw mode after the editor exits.
 func (tty *TTY) Restore() {
 	if tty.reader != nil {
 		return
 	}
-	unix.IoctlSetTermios(tty.fd, ioctlFLUSHSET, &tty.orig)
+	for unix.IoctlSetTermios(tty.fd, ioctlFLUSHSET, &tty.orig) == unix.EINTR {
+	}
 }
 
 // RestoreNoFlush restores the terminal to its original state without flushing pending input
@@ -596,7 +610,8 @@ func (tty *TTY) RestoreNoFlush() {
 	if tty.reader != nil {
 		return
 	}
-	unix.IoctlSetTermios(tty.fd, ioctlSETATTR, &tty.orig)
+	for unix.IoctlSetTermios(tty.fd, ioctlSETATTR, &tty.orig) == unix.EINTR {
+	}
 }
 
 // Flush discards pending input/output
@@ -695,7 +710,7 @@ func (tty *TTY) PrintRawBytes() {
 	if numRead < 0 {
 		numRead = 0
 	}
-	tty.Restore()
+	// Stay in raw mode between reads; only flush the input queue.
 	tty.Flush()
 
 	if err != nil {
