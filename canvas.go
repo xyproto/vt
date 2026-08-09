@@ -439,14 +439,9 @@ func (c *Canvas) draw(permanentlyHideCursor bool) {
 				if r == 0 {
 					r = ' '
 				}
-				// DECAWM off, move to (h, w), emit SGR + rune, then put DECAWM
-				// back the way the canvas is configured. Always turning it back
-				// on would leave autowrap enabled for the rest of the session,
-				// and any row that renders wider than the canvas (a rune that
-				// the terminal considers double width, say) would then wrap and
-				// scroll the screen. The diff-rendered frame would be one row
-				// out of sync with the terminal from that point on, which shows
-				// up as duplicated lines.
+				// DECAWM off, move to (h, w), emit SGR + rune, then restore the
+				// configured wrap mode. Leaving autowrap on lets a too-wide row
+				// wrap and scroll, putting the diffed frame out of sync.
 				sb.WriteString("\033[?7l")
 				fmt.Fprintf(&sb, "\033[%d;%dH", h, w)
 				if uint32(lastCR.fg) < 256 && uint32(lastCR.bg) < 256 {
