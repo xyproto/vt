@@ -5,6 +5,7 @@ package vt
 import (
 	"errors"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -27,6 +28,7 @@ func (s *StubTerm) Read(p []byte) (int, error) {
 
 // TTY represents a terminal device
 type TTY struct {
+	reader  io.Reader // set by NewTTYFromReader, unused here since every read is a stub
 	timeout time.Duration
 }
 
@@ -41,6 +43,12 @@ func (tty *TTY) SetTimeout(d time.Duration) (time.Duration, error) {
 	saved := tty.timeout
 	tty.timeout = d
 	return saved, nil
+}
+
+// SetTimeoutNoSave sets the read timeout without saving the previous value
+func (tty *TTY) SetTimeoutNoSave(d time.Duration) error {
+	tty.timeout = d
+	return nil
 }
 
 // Close will restore and close the raw terminal
