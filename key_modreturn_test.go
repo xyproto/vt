@@ -75,3 +75,26 @@ func TestReadKey_EscapeThenLetter(t *testing.T) {
 		t.Errorf("second key: expected a, got %q", k)
 	}
 }
+
+func TestReadKey_ModifyOtherKeys(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{"\x1b[27;5;13~", "c:13"},  // Ctrl-Return
+		{"\x1b[27;5;108~", "c:12"}, // Ctrl-L
+		{"\x1b[27;6;76~", "c:12"},  // Ctrl-Shift-L
+		{"\x1b[27;5;9~", "c:9"},    // Ctrl-Tab
+		{"\x1b[27;2;9~", "backtab"},
+		{"\x1b[27;3;13~", KeyAltReturnString},
+		{"\x1b[27;2;13~", KeyShiftReturnString},
+		{"\x1b[27;2;65~", "A"},
+		{"\x1b[97;5u", "c:1"},  // Ctrl-A (kitty)
+		{"\x1b[13;5u", "c:13"}, // Ctrl-Return (kitty)
+		{"\x1b[13;2:1u", KeyShiftReturnString},
+	} {
+		tty := NewTTYFromReader(bytes.NewReader([]byte(tc.in)))
+		if k := tty.ReadKey(); k != tc.want {
+			t.Errorf("%q: expected %q, got %q", tc.in, tc.want, k)
+		}
+	}
+}
