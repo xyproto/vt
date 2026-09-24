@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// stallingReader yields its data, then reports "nothing right now" forever,
-// the way an idle file descriptor does.
+// stallingReader yields its data, then reports no data, like an idle fd
 type stallingReader struct {
 	data  []byte
 	delay time.Duration
@@ -24,9 +23,8 @@ func (r *stallingReader) Read(p []byte) (int, error) {
 	return 0, nil
 }
 
-// TestReadKeyNoInputDoesNotPanic checks that reads which return no bytes and
-// no error leave ReadKey with an empty pending buffer to report, rather than
-// indexing into it.
+// TestReadKeyNoInputDoesNotPanic checks that a read returning no bytes and no
+// error does not make ReadKey index into an empty buffer.
 func TestReadKeyNoInputDoesNotPanic(t *testing.T) {
 	tty := NewTTYFromReader(&stallingReader{data: []byte("ab")})
 	defer tty.Close()
@@ -41,8 +39,7 @@ func TestReadKeyNoInputDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestReadKeyTimeoutReturnsEmpty checks that ReadKeyTimeout gives up after the
-// given duration instead of waiting for input that never arrives.
+// TestReadKeyTimeoutReturnsEmpty checks that ReadKeyTimeout gives up in time.
 func TestReadKeyTimeoutReturnsEmpty(t *testing.T) {
 	tty := NewTTYFromReader(&stallingReader{delay: 20 * time.Millisecond})
 	defer tty.Close()
@@ -56,8 +53,8 @@ func TestReadKeyTimeoutReturnsEmpty(t *testing.T) {
 	}
 }
 
-// TestReadKeyTimeoutReturnsPendingKeys checks that buffered keys are returned
-// immediately, and that a burst arriving in one read is handed out key by key.
+// TestReadKeyTimeoutReturnsPendingKeys checks that a burst arriving in one
+// read is handed out key by key.
 func TestReadKeyTimeoutReturnsPendingKeys(t *testing.T) {
 	tty := NewTTYFromReader(&stallingReader{data: []byte("xyz")})
 	defer tty.Close()
@@ -70,7 +67,7 @@ func TestReadKeyTimeoutReturnsPendingKeys(t *testing.T) {
 }
 
 // TestReadKeyLongBurst checks that a burst larger than one read buffer is
-// returned in full, in order.
+// returned in full.
 func TestReadKeyLongBurst(t *testing.T) {
 	const count = 20000
 	payload := make([]byte, count)
