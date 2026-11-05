@@ -1,3 +1,7 @@
+github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
+github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
+github.com/mattn/go-runewidth v0.0.31 h1:1oCV4ReTlosDBc6rYRw5cL8S/4y8iv5oRl4SJ5IBgwo=
+github.com/mattn/go-runewidth v0.0.31/go.mod h1:3qAiGCV4Koz/yuveO58qUefmUTRm8r0IGEXZ9jeHp/8=
 github.com/xyproto/burnfont v1.2.3 h1:4MHSRrmVqZT8i1XmDrEG/5qcg2G1bSEDlOoO3BCl11c=
 github.com/xyproto/burnfont v1.2.3/go.mod h1:NlQwt/VHpxq17k8CkHcWvWTGhBim818XB4onh+TeZRo=
 github.com/xyproto/env/v2 v2.5.6 h1:ZDhM5caXmM0/Bjf4BHd3QkC6p0g0aXAtTwpBOS4sxyU=
